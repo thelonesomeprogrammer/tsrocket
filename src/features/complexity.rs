@@ -175,9 +175,6 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mean = values.iter().map(|&v| v as f64).sum::<f64>() / (n as f64);
 
-    let mut acc_sig = std::mem::take(&mut state.workspace_f64_1);
-    acc_sig.resize(n, 0.0);
-
     let mut y_pref = std::mem::take(&mut state.workspace_f64_2);
     y_pref.resize(n + 1, 0.0);
 
@@ -190,7 +187,6 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
     let mut current_acc = 0.0;
     for i in 0..n {
         current_acc += (values[i] as f64) - mean;
-        acc_sig[i] = current_acc;
 
         y_pref[i + 1] = y_pref[i] + current_acc;
         y2_pref[i + 1] = y2_pref[i] + current_acc * current_acc;
@@ -294,7 +290,6 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
         }
     }
 
-    state.workspace_f64_1 = acc_sig;
     state.workspace_f64_2 = y_pref;
     state.workspace_f64_3 = y2_pref;
     state.workspace_f64_4 = iy_pref;

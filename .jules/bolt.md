@@ -29,3 +29,6 @@ Action: Reused fft_in_buffer and fft_out_buffer for realfft processing and remov
 ## 2024-10-08 - Inner loop vector allocations in permutation_entropy
 **Learning:** Repetitive inner-loop allocations, like `let mut inv_perm = vec![0usize; dim];` inside a loop iterating `num_shifts` times inside `permutation_entropy`, causes significant heap allocation overhead and slows down feature computation.
 **Action:** Extract the vector allocation to before the loop and reuse it via overwriting, which leads to ~56% performance improvement.
+## 2026-10-11 - Unused workspace allocations
+**Learning:** Variables maintained in state workspaces (like `workspace_f64_1` in `calc_dfa`) might actually be unused leftovers from earlier drafts or unneeded intermediate states. Writing to these arrays in tight loops costs memory bandwidth and compute for no reason.
+**Action:** Always verify if an array written to inside a loop is actually consumed later in the function. If it is purely write-only, safely remove the array and all associated calculations to save memory writes and slightly improve performance.

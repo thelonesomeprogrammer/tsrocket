@@ -204,7 +204,7 @@ fn parse_native(s: &str) -> Option<Feature> {
                     if let (Some(num_s), Some(focus_s)) = (p1, p2) {
                         if let (Ok(num), Ok(focus)) = (num_s.parse::<u16>(), focus_s.parse::<u16>())
                         {
-                            if focus < num {
+                            if num > 0 && focus < num {
                                 return Some(Feature::EnergyRatioByChunks(num, focus));
                             }
                         }

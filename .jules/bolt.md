@@ -29,3 +29,6 @@ Action: Reused fft_in_buffer and fft_out_buffer for realfft processing and remov
 ## 2024-10-08 - Inner loop vector allocations in permutation_entropy
 **Learning:** Repetitive inner-loop allocations, like `let mut inv_perm = vec![0usize; dim];` inside a loop iterating `num_shifts` times inside `permutation_entropy`, causes significant heap allocation overhead and slows down feature computation.
 **Action:** Extract the vector allocation to before the loop and reuse it via overwriting, which leads to ~56% performance improvement.
+## 2024-10-25 - Avoid vector allocations in feature finalizers
+**Learning:** Functions like `spectral::finalize()` are evaluated sequentially in inner loops. Calling `Vec::with_capacity()` inside these hot-paths introduces significant heap allocation overhead and slows down throughput.
+**Action:** Replace `Vec::with_capacity()` with pre-allocated buffer reuse (`std::mem::take`) from the shared `ColumnState` container, making sure to clear them before use and return them once the evaluation completes.

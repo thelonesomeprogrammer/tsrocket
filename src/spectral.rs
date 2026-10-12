@@ -380,7 +380,8 @@ pub fn finalize(
 
             if compute.intersects(Compute::SPEC_ENTROPY) {
                 let mut p_sum = 0.0;
-                let mut power_vals = Vec::with_capacity(spectrum.len());
+                // Bolt optimization: Reusing state buffers instead of Vec::with_capacity to avoid inner-loop heap allocation
+                let mut power_vals = std::mem::take(&mut state.diff_buffer); power_vals.clear();
                 for (i, &mag) in spectrum.iter().enumerate() {
                     let power = if i == 0 { 0.0 } else { mag * mag };
                     power_vals.push(power);
@@ -408,6 +409,7 @@ pub fn finalize(
                         spectral_entropy = -entropy_sum / (nonzero as f32).log2();
                     }
                 }
+                state.diff_buffer = power_vals;
             }
         }
 
@@ -547,7 +549,8 @@ pub fn finalize(
         if !values.is_empty() {
             let n_vals = values.len() as f32;
             let mut abs_sums = [0.0f32; 9];
-            let mut row = Vec::with_capacity(values.len());
+            // Bolt optimization: Reusing state buffers instead of Vec::with_capacity to avoid inner-loop heap allocation
+            let mut row = std::mem::take(&mut state.sort_buffer); row.clear();
             for (i, scale) in (1..10).enumerate() {
                 crate::features::cwt::mexh_cwt_into(values, scale, &mut row);
                 cwt_energy[i] = (row.iter().map(|c| c * c).sum::<f32>() / n_vals).sqrt();
@@ -558,6 +561,7 @@ pub fn finalize(
                 cwt_var[i] = row_var;
                 cwt_std[i] = row_var.sqrt();
             }
+            state.sort_buffer = row;
             let total: f32 = abs_sums.iter().sum();
             // TSFEL returns 0 when sum(signal) == 0.
             if total > 0.0 && values.iter().map(|&v| v as f64).sum::<f64>() != 0.0 {

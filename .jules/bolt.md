@@ -35,3 +35,6 @@ Action: Reused fft_in_buffer and fft_out_buffer for realfft processing and remov
 ## 2026-10-11 - Unused workspace allocations
 **Learning:** Variables maintained in state workspaces (like `workspace_f64_1` in `calc_dfa`) might actually be unused leftovers from earlier drafts or unneeded intermediate states. Writing to these arrays in tight loops costs memory bandwidth and compute for no reason.
 **Action:** Always verify if an array written to inside a loop is actually consumed later in the function. If it is purely write-only, safely remove the array and all associated calculations to save memory writes and slightly improve performance.
+## 2026-10-11 - Unused variable warnings
+**Learning:** Some optimizations like "Single-Pass Covariance" introduced unused variables (like `log_k_inv_sum`, `log_lk_sum`, `sum_x_sq`, `sum_xy` in `src/features/complexity.rs`) because the actual calculations using them were commented out, leaving unused mutable declarations. This creates noise and slight overhead.
+**Action:** Remove unused variables and commented-out code blocks left over from previous optimization efforts.

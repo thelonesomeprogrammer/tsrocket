@@ -56,7 +56,7 @@ pub fn eval_min_max(feat: &Feature, context: &mut crate::context::FeatureContext
                 }
                 abs_vals.iter().take(count).sum::<f32>() / count as f32
             } else {
-                0.0
+                f32::NAN
             }
         }
         Feature::HasDuplicateMax => {

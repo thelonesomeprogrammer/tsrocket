@@ -150,11 +150,17 @@ pub fn eval_autocorrelation(
                 0.0
             } else {
                 // statsmodels pacf(method="ld") runs Levinson-Durbin on the adjusted acf.
-                let r: Vec<f32> = (0..=l).map(|k| adjusted_acf(fft_autocorr, k)).collect();
+                let mut r = std::mem::take(&mut state.diff_buffer);
+                r.clear();
+                r.extend((0..=l).map(|k| adjusted_acf(fft_autocorr, k)));
                 let stride = l + 1;
-                let mut phi = vec![0.0; stride * stride];
+                let req_len = stride * stride;
+                let mut phi = std::mem::take(&mut state.pacf_buffer);
+                if phi.len() < req_len {
+                    phi.resize(req_len, 0.0);
+                }
                 let mut error = r[0] as f64;
-                if error.abs() < 1e-9 {
+                let val = if error.abs() < 1e-9 {
                     0.0
                 } else {
                     phi[stride + 1] = r[1] / r[0];
@@ -177,7 +183,10 @@ pub fn eval_autocorrelation(
                         }
                     }
                     phi[l * stride + l]
-                }
+                };
+                state.pacf_buffer = phi;
+                state.diff_buffer = r;
+                val
             }
         }
         _ => return None,

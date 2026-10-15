@@ -485,13 +485,9 @@ fn ensure_higuchi_lengths(values: &[f32], state: &mut crate::common::ColumnState
     let mut higuchi_k_values = std::mem::take(&mut state.higuchi_k_values);
     higuchi_lk.clear();
     higuchi_k_values.clear();
-    let mut log_k_inv_sum = 0.0f64;
-    let mut log_lk_sum = 0.0f64;
 
     // Opt: Compute linear regression standard covariance/variance dynamically in one pass
     // to avoid allocating two vectors for `log_k_inv` and `log_lk`
-    let mut sum_x_sq = 0.0f64;
-    let mut sum_xy = 0.0f64;
 
     // TSFEL normalization logic requires evaluating sum for each m individually.
     // Instead of using a vector of size k, we iterate directly using O(1) space to avoid allocations.
@@ -553,10 +549,6 @@ fn calc_higuchi_fd(values: &[f32], state: &mut crate::common::ColumnState) -> f3
     for i in 0..lk.len() {
         log_k_inv_sum += (1.0 / k_values[i]).ln();
         log_lk_sum += lk[i].ln();
-        // log_k_inv_sum += log_k_inv;
-        // log_lk_sum += log_lk;
-        // sum_x_sq += log_k_inv * log_k_inv;
-        // sum_xy += log_k_inv * log_lk;
     }
 
     let x_mean = log_k_inv_sum / count;
@@ -571,9 +563,6 @@ fn calc_higuchi_fd(values: &[f32], state: &mut crate::common::ColumnState) -> f3
         num += dx * dy;
         den += dx * dx;
     }
-    // let num = sum_xy - count * x_mean * y_mean;
-    // let den = sum_x_sq - count * x_mean * x_mean;
-    //
     if den == 0.0 {
         return f32::NAN;
     }

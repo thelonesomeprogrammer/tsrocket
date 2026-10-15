@@ -14,10 +14,10 @@ pub fn eval_subsequence(feat: &Feature, context: &mut FeatureContext) -> Option<
             }
             let threshold = f32::from_bits(*threshold_bits);
             let q = &context.values[..l];
-            let distances = mass_distance_profile(context.values, q);
+            let distances = mass_distance_profile(context.values, q, context);
 
             let mut count = 0;
-            for &d in &distances {
+            for &d in distances {
                 if d <= threshold {
                     count += 1;
                 }
@@ -62,11 +62,11 @@ pub fn eval_subsequence(feat: &Feature, context: &mut FeatureContext) -> Option<
     }
 }
 
-fn mass_distance_profile(x: &[f32], q: &[f32]) -> Vec<f32> {
+fn mass_distance_profile<'a>(x: &[f32], q: &[f32], context: &'a mut FeatureContext) -> &'a [f32] {
     let m = q.len();
     let n = x.len();
     if n < m {
-        return vec![];
+        return &[];
     }
 
     let mut q_mean = 0.0;
@@ -83,12 +83,16 @@ fn mass_distance_profile(x: &[f32], q: &[f32]) -> Vec<f32> {
         q_std = 1.0;
     }
 
-    let mut q_norm = Vec::with_capacity(m);
+    let mut q_norm = std::mem::take(&mut context.state.sort_buffer);
+    q_norm.clear();
+    q_norm.reserve(m);
     for &v in q {
         q_norm.push((v - q_mean) / q_std);
     }
 
-    let mut distances = Vec::with_capacity(n - m + 1);
+    let mut distances = std::mem::take(&mut context.state.diff_buffer);
+    distances.clear();
+    distances.reserve(n - m + 1);
 
     for i in 0..=n - m {
         let window = &x[i..i + m];
@@ -118,7 +122,9 @@ fn mass_distance_profile(x: &[f32], q: &[f32]) -> Vec<f32> {
         distances.push(d);
     }
 
-    distances
+context.state.sort_buffer = q_norm;
+    context.state.diff_buffer = distances;
+    &context.state.diff_buffer
 }
 
 /// Matrix profile with an exact dot product per pair (rolling STOMP/MPX

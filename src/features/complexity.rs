@@ -215,8 +215,8 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mut log_scales = std::mem::take(&mut state.workspace_f64_5);
     log_scales.clear();
-    let mut log_flucts = std::mem::take(&mut state.sort_buffer);
-    let mut log_flucts_f64 = Vec::with_capacity(scales.len());
+    let mut log_flucts_f64 = std::mem::take(&mut state.workspace_f64_1);
+    log_flucts_f64.clear();
 
     for &s in &scales {
         let num_windows = n / s;
@@ -261,18 +261,15 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mut i_plateau = log_flucts_f64.len();
     if log_flucts_f64.len() > 5 {
-        let mut dy = Vec::with_capacity(log_flucts_f64.len() - 1);
-        for i in 0..log_flucts_f64.len() - 1 {
-            dy.push(log_flucts_f64[i + 1] - log_flucts_f64[i]);
-        }
-
         let mean_y = log_flucts_f64.iter().sum::<f64>() / (log_flucts_f64.len() as f64);
         let consecutive_points = 5;
+        let dy_len = log_flucts_f64.len() - 1;
 
-        for i in 0..=(dy.len() - consecutive_points) {
+        for i in 0..=(dy_len - consecutive_points) {
             let mut all_below = true;
             for j in 0..consecutive_points {
-                if dy[i + j].abs() >= 0.1 {
+                let dy = log_flucts_f64[i + j + 1] - log_flucts_f64[i + j];
+                if dy.abs() >= 0.1 {
                     all_below = false;
                     break;
                 }
@@ -319,8 +316,8 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
         f32::NAN
     };
 
+    state.workspace_f64_1 = log_flucts_f64;
     state.workspace_f64_5 = log_scales;
-    state.sort_buffer = log_flucts;
 
     res
 }

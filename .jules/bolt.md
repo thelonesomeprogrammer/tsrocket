@@ -42,3 +42,7 @@ Action: Reused fft_in_buffer and fft_out_buffer for realfft processing and remov
 ## 2026-10-11 - Unused variable warnings
 **Learning:** Some optimizations like "Single-Pass Covariance" introduced unused variables (like `log_k_inv_sum`, `log_lk_sum`, `sum_x_sq`, `sum_xy` in `src/features/complexity.rs`) because the actual calculations using them were commented out, leaving unused mutable declarations. This creates noise and slight overhead.
 **Action:** Remove unused variables and commented-out code blocks left over from previous optimization efforts.
+
+## 2026-10-18 - Eliminating intermediate arrays in sliding window evaluation
+**Learning:** Initializing intermediate vectors (like `dy = Vec::with_capacity(...)`) for localized sliding difference checks inside window calculations causes redundant heap allocations.
+**Action:** Replace `Vec` allocations with lazy iterative evaluations directly indexing into the source array within the inner check loop (`arr[i+1] - arr[i]`) whenever intermediate values are only consumed immediately.

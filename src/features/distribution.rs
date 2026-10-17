@@ -37,7 +37,13 @@ fn hist_mode(values: &[f32], min: f32, max: f32, nbins: usize, counts: &mut Vec<
         (min as f64, max as f64)
     };
     let step = (last - first) / nbins as f64;
-    let edge = |k: usize| if k == nbins { last } else { k as f64 * step + first };
+    let edge = |k: usize| {
+        if k == nbins {
+            last
+        } else {
+            k as f64 * step + first
+        }
+    };
     let norm = nbins as f64 / (last - first);
     let top = nbins - 1;
 
@@ -189,21 +195,23 @@ pub fn eval_distribution(
                 return Some(f32::NAN);
             }
 
-            let (x_init, x_end) = if let Some(sorted) = context.running_sorted.filter(|s| !s.is_empty()) {
-                (sorted[k_init - 1], sorted[k_end - 1])
-            } else {
-                let mut copy: Vec<f32> = std::mem::take(&mut state.sort_buffer);
-                copy.clear();
-                copy.extend_from_slice(values);
+            let (x_init, x_end) =
+                if let Some(sorted) = context.running_sorted.filter(|s| !s.is_empty()) {
+                    (sorted[k_init - 1], sorted[k_end - 1])
+                } else {
+                    let mut copy: Vec<f32> = std::mem::take(&mut state.sort_buffer);
+                    copy.clear();
+                    copy.extend_from_slice(values);
 
-                let (_, val_end, _) = copy.select_nth_unstable_by(k_end - 1, f32::total_cmp);
-                let x_e = *val_end;
-                let (_, val_init, _) = copy[0..k_end].select_nth_unstable_by(k_init - 1, f32::total_cmp);
-                let x_i = *val_init;
+                    let (_, val_end, _) = copy.select_nth_unstable_by(k_end - 1, f32::total_cmp);
+                    let x_e = *val_end;
+                    let (_, val_init, _) =
+                        copy[0..k_end].select_nth_unstable_by(k_init - 1, f32::total_cmp);
+                    let x_i = *val_init;
 
-                state.sort_buffer = copy;
-                (x_i, x_e)
-            };
+                    state.sort_buffer = copy;
+                    (x_i, x_e)
+                };
 
             (p_end - p_init) / (x_end - x_init)
         }
@@ -307,7 +315,9 @@ pub fn eval_distribution(
                 return Some(0.0);
             }
 
-            let (ql_val, qh_val) = if let Some(sorted) = context.running_sorted.filter(|s| !s.is_empty()) {
+            let (ql_val, qh_val) = if let Some(sorted) =
+                context.running_sorted.filter(|s| !s.is_empty())
+            {
                 (compute_quantile(sorted, ql), compute_quantile(sorted, qh))
             } else {
                 let mut copy: Vec<f32> = std::mem::take(&mut state.sort_buffer);
@@ -442,14 +452,20 @@ pub fn eval_distribution(
 fn tsfel_ecdf_rank(p: f32, n: usize) -> usize {
     let x = p as f64 * n as f64;
     let r = x.round();
-    let k = if (x - r).abs() <= x.abs() * f32::EPSILON as f64 { r } else { x.floor() };
+    let k = if (x - r).abs() <= x.abs() * f32::EPSILON as f64 {
+        r
+    } else {
+        x.floor()
+    };
     (k.max(0.0) as usize).min(n)
 }
 
 /// TSFEL's "constant signal" test, `np.sum(np.diff(signal)) == 0`, which is
 /// really `x[0] == x[-1]` (the diffs telescope, exactly for f32 inputs).
 fn tsfel_looks_constant(values: &[f32]) -> bool {
-    values.first().is_some_and(|first| Some(first) == values.last())
+    values
+        .first()
+        .is_some_and(|first| Some(first) == values.last())
 }
 
 /// 10^k for k in 0..=46, enough to scale any f32 to [1, 10).
@@ -475,7 +491,11 @@ fn first_significant_digit(v: f32) -> Option<usize> {
     // floor(log10 a) is floor(e2 * log10 2) or one more; 1233 / 4096 ~ log10 2.
     let e2 = ((a.to_bits() >> 52) & 0x7ff) as i32 - 1023;
     let e10 = (e2 * 1233) >> 12;
-    let mut m = if e10 >= 0 { a / POW10[e10 as usize] } else { a * POW10[(-e10) as usize] };
+    let mut m = if e10 >= 0 {
+        a / POW10[e10 as usize]
+    } else {
+        a * POW10[(-e10) as usize]
+    };
     if m >= 10.0 {
         m /= 10.0;
     }

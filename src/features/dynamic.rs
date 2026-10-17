@@ -400,7 +400,10 @@ fn compute_max_langevin(coeffs: &[f32]) -> f32 {
         return f32::NAN;
     }
     // np.roots strips leading zeros; no roots left means tsfresh's NaN.
-    let lead = coeffs.iter().position(|&c| c != 0.0).unwrap_or(coeffs.len());
+    let lead = coeffs
+        .iter()
+        .position(|&c| c != 0.0)
+        .unwrap_or(coeffs.len());
     let c: Vec<f64> = coeffs[lead..].iter().map(|&c| c as f64).collect();
     if c.len() < 2 {
         return f32::NAN;

@@ -120,8 +120,8 @@ pub fn eval_transform(feat: &Feature, context: &mut crate::context::FeatureConte
             } else {
                 values.to_vec()
             };
-            let psd = crate::spectral::welch_psd(&scaled, scaled.len(), state.fs)
-                .unwrap_or_default();
+            let psd =
+                crate::spectral::welch_psd(&scaled, scaled.len(), state.fs).unwrap_or_default();
             psd.into_iter().fold(0.0, f32::max)
         }
         // tsfresh: NaN past the last rfft coefficient (n / 2).
@@ -192,7 +192,9 @@ pub fn eval_transform(feat: &Feature, context: &mut crate::context::FeatureConte
             }
         }
         Feature::SpectrogramMeanCoeff(coeff, bins) => {
-            return state.spectrogram.coefficient(values, *coeff, *bins, state.fs);
+            return state
+                .spectrogram
+                .coefficient(values, *coeff, *bins, state.fs);
         }
         Feature::SpectralEntropy => spectral_entropy,
         Feature::WaveletFeatures(_w_bits, f_type) => {

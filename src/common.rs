@@ -463,8 +463,14 @@ pub fn sample_entropy_counts(data: &[f32], m: usize, r: f32) -> (u32, u32) {
             let v_i = f32x4::splat(data[i + m]);
             let lo = f32x4::from_slice(&data[j + m..j + m + 4]);
             let hi = f32x4::from_slice(&data[j + m + 4..j + m + 8]);
-            a_acc += max_lo.simd_max((lo - v_i).abs()).simd_le(r_vec).select(one, zero);
-            a_acc += max_hi.simd_max((hi - v_i).abs()).simd_le(r_vec).select(one, zero);
+            a_acc += max_lo
+                .simd_max((lo - v_i).abs())
+                .simd_le(r_vec)
+                .select(one, zero);
+            a_acc += max_hi
+                .simd_max((hi - v_i).abs())
+                .simd_le(r_vec)
+                .select(one, zero);
 
             j += 8;
         }

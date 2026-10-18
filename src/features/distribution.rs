@@ -329,7 +329,9 @@ pub fn eval_distribution(
                 vals
             };
 
-            let mut diffs = Vec::with_capacity(values.len());
+            let mut diffs = std::mem::take(&mut state.diff_buffer);
+            diffs.clear();
+            diffs.reserve(values.len());
             let mut prev_in = false;
             let mut prev_val = 0.0;
 
@@ -367,7 +369,8 @@ pub fn eval_distribution(
                 }
                 crate::types::AggFunc::Min => diffs.iter().cloned().fold(f32::INFINITY, f32::min),
                 crate::types::AggFunc::Median => super::median_in_place(&mut diffs),
-            };
+};
+            state.diff_buffer = diffs;
             res
         }
 

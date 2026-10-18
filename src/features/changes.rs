@@ -77,7 +77,9 @@ pub fn eval_changes(feat: &Feature, context: &mut crate::context::FeatureContext
                 }
 
                 let n_len = diffs.len();
-                let res = if n_len % 2 == 1 {
+                let res = if n_len == 0 {
+                    f32::NAN
+                } else if n_len % 2 == 1 {
                     *diffs
                         .select_nth_unstable_by(n_len / 2, |a: &f32, b: &f32| {
                             a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)

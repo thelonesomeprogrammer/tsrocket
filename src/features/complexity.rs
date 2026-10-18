@@ -46,7 +46,12 @@ pub fn eval_complexity(
             let m_val = *m as usize;
             // tsfresh: r is relative to the population std.
             let r = f32::from_bits(*r_bits) * population_std(values);
-            crate::common::approx_entropy(m_val, r, values, &mut context.state.approx_entropy_counts)
+            crate::common::approx_entropy(
+                m_val,
+                r,
+                values,
+                &mut context.state.approx_entropy_counts,
+            )
         }
         Feature::SampleEntropy => {
             let r = 0.2 * population_std(values);
@@ -744,7 +749,10 @@ fn lz_complexity(state: &mut crate::common::ColumnState) -> f32 {
         let mut node = root[first as usize];
         if node == 0 {
             root[first as usize] = nodes.len() as u32;
-            nodes.push(LzNode { symbol: first, ..LzNode::default() });
+            nodes.push(LzNode {
+                symbol: first,
+                ..LzNode::default()
+            });
             num_substrings += 1;
             ind += 1;
             continue;
@@ -765,7 +773,11 @@ fn lz_complexity(state: &mut crate::common::ColumnState) -> f32 {
             } else {
                 let new = nodes.len() as u32;
                 let next_sibling = nodes[node as usize].first_child;
-                nodes.push(LzNode { first_child: 0, next_sibling, symbol });
+                nodes.push(LzNode {
+                    first_child: 0,
+                    next_sibling,
+                    symbol,
+                });
                 nodes[node as usize].first_child = new;
                 num_substrings += 1;
                 ind += inc;
@@ -838,7 +850,13 @@ fn eval_lempel_ziv_complexity(context: &mut crate::context::FeatureContext, bins
     // in f64 like numpy, so values on an edge land in the same bin.
     use super::EdgeSide::SearchsortedLeft;
     let mut edges = std::mem::take(&mut state.bin_edges);
-    let norm = super::numpy_bin_edges(min_val, max_val, bins as usize, SearchsortedLeft, &mut edges);
+    let norm = super::numpy_bin_edges(
+        min_val,
+        max_val,
+        bins as usize,
+        SearchsortedLeft,
+        &mut edges,
+    );
     for &v in values {
         let k = super::numpy_bin(v, min_val, norm, &edges, SearchsortedLeft);
         state.lz_symbol_buffer.push(k as u8);

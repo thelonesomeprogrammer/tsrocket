@@ -219,7 +219,8 @@ fn meta_features_are_split_off() {
     use super::{MetaFeatures, split_meta};
     let names = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
 
-    let (rest, meta) = split_meta(names(&["mean", "fresh-8", "spectral_entropy", "fresh-3"])).unwrap();
+    let (rest, meta) =
+        split_meta(names(&["mean", "fresh-8", "spectral_entropy", "fresh-3"])).unwrap();
     assert_eq!(rest, names(&["mean", "spectral_entropy"]));
     assert_eq!(meta.fresh_fft_every, Some(3), "the smallest N wins");
 
@@ -228,7 +229,10 @@ fn meta_features_are_split_off() {
     assert_eq!(meta, MetaFeatures::default());
 
     for bad in ["fresh-0", "fresh-", "fresh-x", "fresh--1", "fresh-1.5"] {
-        assert!(split_meta(names(&[bad])).is_err(), "{bad} should be rejected");
+        assert!(
+            split_meta(names(&[bad])).is_err(),
+            "{bad} should be rejected"
+        );
     }
     // A meta feature is not a feature: it never parses as one.
     assert!("fresh-1".parse::<Feature>().is_err());
@@ -241,9 +245,15 @@ fn tsfresh_and_tsfel_column_names_translate() {
         ("value__mean", "mean"),
         ("value__abs_energy", "energy"),
         ("value__cid_ce__normalize_True", "cid_ce_normalized"),
-        (r#"value__fft_coefficient__attr_"abs"__coeff_3"#, "fft_coeff-3-abs"),
+        (
+            r#"value__fft_coefficient__attr_"abs"__coeff_3"#,
+            "fft_coeff-3-abs",
+        ),
         (r#"fft_coefficient__attr_"abs"__coeff_3"#, "fft_coeff-3-abs"),
-        (r#"a__b__fft_coefficient__attr_"abs"__coeff_3"#, "fft_coeff-3-abs"),
+        (
+            r#"a__b__fft_coefficient__attr_"abs"__coeff_3"#,
+            "fft_coeff-3-abs",
+        ),
         (
             r#"value__agg_linear_trend__attr_"slope"__chunk_len_5__f_agg_"median""#,
             "agg_linear_trend-slope-5-median",
@@ -253,7 +263,10 @@ fn tsfresh_and_tsfel_column_names_translate() {
             "change_quantiles-0.2-0.8-True-var",
         ),
         ("value__range_count__max_1__min_-1", "range_count--1-1"),
-        ("value__binned_entropy__max_bins_10", "binned_entropy__max_bins_10"),
+        (
+            "value__binned_entropy__max_bins_10",
+            "binned_entropy__max_bins_10",
+        ),
         (
             r#"value__augmented_dickey_fuller__attr_"pvalue"__autolag_"AIC""#,
             "augmented_dickey_fuller-pvalue",
@@ -278,9 +291,18 @@ fn tsfresh_and_tsfel_column_names_translate() {
 #[test]
 fn tsfel_frequency_names_need_fs() {
     let name = "0_Wavelet energy_12.5Hz";
-    assert!(name.parse::<Feature>().is_err(), "no fs, no frequency mapping");
-    assert_eq!(Feature::parse_with_fs(name, 100.0).unwrap().name(), "wavelet_energy-1");
-    assert_eq!(Feature::parse_with_fs(name, 50.0).unwrap().name(), "wavelet_energy-0");
+    assert!(
+        name.parse::<Feature>().is_err(),
+        "no fs, no frequency mapping"
+    );
+    assert_eq!(
+        Feature::parse_with_fs(name, 100.0).unwrap().name(),
+        "wavelet_energy-1"
+    );
+    assert_eq!(
+        Feature::parse_with_fs(name, 50.0).unwrap().name(),
+        "wavelet_energy-0"
+    );
     let spec = "0_Spectrogram mean coefficient_1.61Hz";
     assert_eq!(
         Feature::parse_with_fs(spec, 100.0).unwrap().name(),

@@ -116,8 +116,10 @@ pub fn mexh_cwt_into(values: &[f32], scale: u16, out: &mut Vec<f32>) {
     out.clear();
     let n = values.len();
     let filled = n > 0
-        && with_mexh_kernel(scale, |kern| out.extend((0..n).map(|i| mexh_coeff(values, kern, i))))
-            .is_some();
+        && with_mexh_kernel(scale, |kern| {
+            out.extend((0..n).map(|i| mexh_coeff(values, kern, i)))
+        })
+        .is_some();
     if !filled {
         out.clear();
         out.resize(n, 0.0);

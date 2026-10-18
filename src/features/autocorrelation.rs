@@ -207,6 +207,10 @@ fn adjusted_acf(fft_autocorr: &[f32], lag: usize) -> f32 {
 /// returns NaN for every lag when max_lag < 1, lag 0 included.
 fn pacf_lag_is_computed(n: usize, lag: u16) -> bool {
     let demanded = (lag as usize).max(9);
-    let max_lag = if n > 2 * demanded { demanded } else { (n / 2).saturating_sub(1) };
+    let max_lag = if n > 2 * demanded {
+        demanded
+    } else {
+        (n / 2).saturating_sub(1)
+    };
     max_lag >= 1 && lag as usize <= max_lag
 }

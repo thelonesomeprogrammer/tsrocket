@@ -185,7 +185,15 @@ pub fn finalize(
                 spectral_kurtosis = kurt_num / (m0 * spread_quad);
             }
 
-            if compute.intersects(Compute::SPEC_ROLLON | Compute::SPEC_ROLLOFF | Compute::MAX_FREQ | Compute::MEDIAN_FREQ | Compute::SPEC_DECREASE | Compute::SPEC_SLOPE) && spectrum.len() > 1 {
+            if compute.intersects(
+                Compute::SPEC_ROLLON
+                    | Compute::SPEC_ROLLOFF
+                    | Compute::MAX_FREQ
+                    | Compute::MEDIAN_FREQ
+                    | Compute::SPEC_DECREASE
+                    | Compute::SPEC_SLOPE,
+            ) && spectrum.len() > 1
+            {
                 let spec_sum_no_first = m0 - spectrum[0];
                 if spec_sum_no_first > 0.0 {
                     let mut sd_num = 0.0;
@@ -381,7 +389,8 @@ pub fn finalize(
             if compute.intersects(Compute::SPEC_ENTROPY) {
                 let mut p_sum = 0.0;
                 // Bolt optimization: Reusing state buffers instead of Vec::with_capacity to avoid inner-loop heap allocation
-                let mut power_vals = std::mem::take(&mut state.diff_buffer); power_vals.clear();
+                let mut power_vals = std::mem::take(&mut state.diff_buffer);
+                power_vals.clear();
                 for (i, &mag) in spectrum.iter().enumerate() {
                     let power = if i == 0 { 0.0 } else { mag * mag };
                     power_vals.push(power);
@@ -550,7 +559,8 @@ pub fn finalize(
             let n_vals = values.len() as f32;
             let mut abs_sums = [0.0f32; 9];
             // Bolt optimization: Reusing state buffers instead of Vec::with_capacity to avoid inner-loop heap allocation
-            let mut row = std::mem::take(&mut state.sort_buffer); row.clear();
+            let mut row = std::mem::take(&mut state.sort_buffer);
+            row.clear();
             for (i, scale) in (1..10).enumerate() {
                 crate::features::cwt::mexh_cwt_into(values, scale, &mut row);
                 cwt_energy[i] = (row.iter().map(|c| c * c).sum::<f32>() / n_vals).sqrt();
@@ -640,14 +650,24 @@ fn f64_mean_is_exact(values: &[f32]) -> Option<bool> {
         let bits = v.to_bits();
         let biased = ((bits >> 23) & 0xff) as i32;
         let frac = (bits & 0x7f_ffff) as i128;
-        let (sig, exp) = if biased == 0 { (frac, -149) } else { (frac | 1 << 23, biased - 150) };
+        let (sig, exp) = if biased == 0 {
+            (frac, -149)
+        } else {
+            (frac | 1 << 23, biased - 150)
+        };
         (if bits >> 31 == 1 { -sig } else { sig }, exp)
     };
     if values.is_empty() || values.iter().any(|v| !v.is_finite()) {
         return None;
     }
-    let min_exp = values.iter().filter(|&&v| v != 0.0).map(|&v| parts(v).1).min();
-    let Some(min_exp) = min_exp else { return Some(true) }; // all zeros
+    let min_exp = values
+        .iter()
+        .filter(|&&v| v != 0.0)
+        .map(|&v| parts(v).1)
+        .min();
+    let Some(min_exp) = min_exp else {
+        return Some(true);
+    }; // all zeros
     // |sum| < len * 2^(24 + spread) must stay below 2^127.
     let len_bits = usize::BITS - values.len().leading_zeros();
     let max_spread = 126 - 24 - len_bits as i32;
@@ -713,7 +733,8 @@ pub fn averaged_periodogram(
     let r2c = plan_forward(nperseg);
     buf.indata.resize(nperseg, 0.0);
     buf.outdata.resize(nperseg / 2 + 1, Complex::default());
-    buf.fft_scratch.resize(r2c.get_scratch_len(), Complex::default());
+    buf.fft_scratch
+        .resize(r2c.get_scratch_len(), Complex::default());
     psd.resize(nperseg / 2 + 1, 0.0);
 
     let step = nperseg - noverlap;
@@ -735,7 +756,11 @@ pub fn averaged_periodogram(
     // Density scaling and segment mean folded into one pass; one-sided:
     // double all bins except DC and (for even nperseg) Nyquist.
     let scale = 1.0 / (fs * window.iter().map(|w| w * w).sum::<f32>() * n_segments as f32);
-    let last = if nperseg % 2 == 0 { psd.len() - 1 } else { psd.len() };
+    let last = if nperseg % 2 == 0 {
+        psd.len() - 1
+    } else {
+        psd.len()
+    };
     for (k, p) in psd.iter_mut().enumerate() {
         let doubled = k != 0 && k < last;
         *p *= if doubled { 2.0 * scale } else { scale };

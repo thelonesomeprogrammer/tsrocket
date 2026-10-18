@@ -29,6 +29,16 @@ Action: Reused fft_in_buffer and fft_out_buffer for realfft processing and remov
 ## 2024-10-08 - Inner loop vector allocations in permutation_entropy
 **Learning:** Repetitive inner-loop allocations, like `let mut inv_perm = vec![0usize; dim];` inside a loop iterating `num_shifts` times inside `permutation_entropy`, causes significant heap allocation overhead and slows down feature computation.
 **Action:** Extract the vector allocation to before the loop and reuse it via overwriting, which leads to ~56% performance improvement.
+## 2024-10-25 - Avoid vector allocations in feature finalizers
+**Learning:** Functions like `spectral::finalize()` are evaluated sequentially in inner loops. Calling `Vec::with_capacity()` inside these hot-paths introduces significant heap allocation overhead and slows down throughput.
+**Action:** Replace `Vec::with_capacity()` with pre-allocated buffer reuse (`std::mem::take`) from the shared `ColumnState` container, making sure to clear them before use and return them once the evaluation completes.
 ## 2026-10-11 - Unused workspace allocations
 **Learning:** Variables maintained in state workspaces (like `workspace_f64_1` in `calc_dfa`) might actually be unused leftovers from earlier drafts or unneeded intermediate states. Writing to these arrays in tight loops costs memory bandwidth and compute for no reason.
 **Action:** Always verify if an array written to inside a loop is actually consumed later in the function. If it is purely write-only, safely remove the array and all associated calculations to save memory writes and slightly improve performance.
+
+## 2026-10-18 - Avoiding dynamic allocations in Levinson-Durbin
+**Learning:** `PartialAutocorr` calculations dynamically allocated `Vec` and resized heavily inside a Levinson-Durbin implementation using `let mut phi = vec![0.0; stride * stride];`.
+**Action:** Replaced with pre-allocated buffer `pacf_buffer` and `diff_buffer` in `ColumnState` and re-sized instead to significantly reduce inner loop allocations, resulting in roughly a 2.5x speedup for the feature processing overhead.
+## 2026-10-11 - Unused variable warnings
+**Learning:** Some optimizations like "Single-Pass Covariance" introduced unused variables (like `log_k_inv_sum`, `log_lk_sum`, `sum_x_sq`, `sum_xy` in `src/features/complexity.rs`) because the actual calculations using them were commented out, leaving unused mutable declarations. This creates noise and slight overhead.
+**Action:** Remove unused variables and commented-out code blocks left over from previous optimization efforts.

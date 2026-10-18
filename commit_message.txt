@@ -1,0 +1,7 @@
+🛡️ Sentinel: [CRITICAL] Fix Denial of Service via unhandled panics on `select_nth_unstable_by` in changes and min/max features
+
+🚨 Severity: CRITICAL
+💡 Vulnerability: The `MedianDiff`, `MedianAbsDiff`, and `MeanNAbsoluteMax` feature calculations could panic when calling `select_nth_unstable_by` with zero-length internal slices. Specifically, a calculation resolving to zero elements would cause the Rust standard library to panic out of bounds, which terminates the parent Python process.
+🎯 Impact: This allows Denial of Service (DoS) attacks causing unexpected process exits.
+🔧 Fix: Guarded all median and quantile selection operations (like `select_nth_unstable_by`) with an explicit `len == 0` check, returning `f32::NAN` instead to prevent a hard panic and process termination.
+✅ Verification: Ran `cargo test` and the full `pytest` suite ensuring panics are mitigated and outputs match expectations.

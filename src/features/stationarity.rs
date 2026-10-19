@@ -55,13 +55,14 @@ pub fn eval_stationarity(
                 };
                 let maxlag = ((12.0 * ((n as f64) / 100.0).powf(0.25)).ceil() as usize).min(cap);
 
-                let mut xdiff = std::mem::take(&mut state.workspace_f64_3);
+                let mut xdiff = std::mem::take(&mut state.adf_xdiff);
                 xdiff.clear();
                 xdiff.extend((1..n).map(|i| (values[i] - values[i - 1]) as f64));
-                let mut cols = std::mem::take(&mut state.workspace_f64_4);
-                let result = adf(values, &xdiff, maxlag, &mut cols);
-                state.workspace_f64_3 = xdiff;
-                state.workspace_f64_4 = cols;
+                let mut cols = std::mem::take(&mut state.adf_design);
+                let scratch = state.adf_scratch.get_or_insert_default();
+                let result = adf(values, &xdiff, maxlag, &mut cols, scratch);
+                state.adf_xdiff = xdiff;
+                state.adf_design = cols;
                 let Some((best_t_stat, best_lag)) = result else {
                     return Some(f32::NAN);
                 };
@@ -133,9 +134,30 @@ fn solve_in_place(a: &mut [f64], b: &mut [f64], k: usize) -> bool {
     true
 }
 
+/// Reusable buffers for `adf`, kept on `ColumnState` between windows.
+#[derive(Clone, Default)]
+pub struct AdfScratch {
+    gram: Vec<f64>,
+    xty: Vec<f64>,
+    idx: Vec<usize>,
+    ols: OlsScratch,
+    e0: Vec<f64>,
+}
+
+#[derive(Clone, Default)]
+struct OlsScratch {
+    /// The reduced Gram matrix, solved in place.
+    a: Vec<f64>,
+    /// The coefficients of the last successful fit.
+    coeffs: Vec<f64>,
+    resid: Vec<f64>,
+}
+
 /// OLS of `y` on the columns `idx` of the column-major design `cols`, given
-/// the full Gram matrix `gram` (`kk` x `kk`) and `xty`. Returns the
-/// coefficients and the residual sum of squares, computed from the residuals.
+/// the full Gram matrix `gram` (`kk` x `kk`) and `xty`. Returns the residual
+/// sum of squares, computed from the residuals, and leaves the coefficients
+/// in `s.coeffs`.
+#[allow(clippy::too_many_arguments)]
 fn ols_subset(
     cols: &[f64],
     rows: usize,
@@ -144,28 +166,41 @@ fn ols_subset(
     xty: &[f64],
     kk: usize,
     idx: &[usize],
-) -> Option<(Vec<f64>, f64)> {
+    s: &mut OlsScratch,
+) -> Option<f64> {
+    let OlsScratch { a, coeffs, resid } = s;
     let k = idx.len();
-    let mut a: Vec<f64> = idx
-        .iter()
-        .flat_map(|&r| idx.iter().map(move |&c| gram[r * kk + c]))
-        .collect();
-    let mut coeffs: Vec<f64> = idx.iter().map(|&r| xty[r]).collect();
-    if !solve_in_place(&mut a, &mut coeffs, k) {
+    a.clear();
+    a.extend(
+        idx.iter()
+            .flat_map(|&r| idx.iter().map(move |&c| gram[r * kk + c])),
+    );
+    coeffs.clear();
+    coeffs.extend(idx.iter().map(|&r| xty[r]));
+    if !solve_in_place(a, coeffs, k) {
         return None;
     }
-    let mut resid = y.to_vec();
-    for (&c, &b) in idx.iter().zip(&coeffs) {
+    resid.clear();
+    resid.extend_from_slice(y);
+    for (&c, &b) in idx.iter().zip(coeffs.iter()) {
         for (r, &x) in resid.iter_mut().zip(&cols[c * rows..(c + 1) * rows]) {
             *r -= x * b;
         }
     }
-    Some((coeffs, dot(&resid, &resid)))
+    Some(dot(resid, resid))
 }
 
-fn gram_matrix(cols: &[f64], rows: usize, y: &[f64], kk: usize) -> (Vec<f64>, Vec<f64>) {
+fn gram_matrix(
+    cols: &[f64],
+    rows: usize,
+    y: &[f64],
+    kk: usize,
+    gram: &mut Vec<f64>,
+    xty: &mut Vec<f64>,
+) {
     let col = |c: usize| &cols[c * rows..(c + 1) * rows];
-    let mut gram = vec![0.0; kk * kk];
+    gram.clear();
+    gram.resize(kk * kk, 0.0);
     for i in 0..kk {
         for j in i..kk {
             let v = dot(col(i), col(j));
@@ -173,15 +208,21 @@ fn gram_matrix(cols: &[f64], rows: usize, y: &[f64], kk: usize) -> (Vec<f64>, Ve
             gram[j * kk + i] = v;
         }
     }
-    let xty = (0..kk).map(|i| dot(col(i), y)).collect();
-    (gram, xty)
+    xty.clear();
+    xty.extend((0..kk).map(|i| dot(col(i), y)));
 }
 
 /// statsmodels `adfuller(x, regression="c", autolag="AIC")`: picks the lag
 /// by AIC over a common sample (rows from `maxlag` on), then refits that lag
 /// on all available rows. Every lag's regressors are a subset of `maxlag`'s,
 /// so one Gram matrix serves the whole search. Returns (t-stat, lag).
-fn adf(values: &[f32], xdiff: &[f64], maxlag: usize, cols: &mut Vec<f64>) -> Option<(f32, usize)> {
+fn adf(
+    values: &[f32],
+    xdiff: &[f64],
+    maxlag: usize,
+    cols: &mut Vec<f64>,
+    s: &mut AdfScratch,
+) -> Option<(f32, usize)> {
     let rows = xdiff.len().checked_sub(maxlag)?;
     if rows <= 2 {
         return None;
@@ -190,21 +231,21 @@ fn adf(values: &[f32], xdiff: &[f64], maxlag: usize, cols: &mut Vec<f64>) -> Opt
     adf_design(values, xdiff, maxlag, maxlag, cols);
     let kk = maxlag + 2;
     let y = &xdiff[maxlag..];
-    let (gram, xty) = gram_matrix(cols, rows, y, kk);
+    gram_matrix(cols, rows, y, kk, &mut s.gram, &mut s.xty);
 
     let mut best_aic = f64::INFINITY;
     let mut best_lag = 0;
     let n_obs = rows as f64;
-    let mut idx = Vec::with_capacity(kk);
     // statsmodels picks min((aic, lag)): ties go to the smallest lag, so scan
     // upwards and only replace on a strictly smaller AIC.
     for lag in 0..=maxlag {
-        idx.clear();
-        idx.extend(0..=lag);
-        idx.push(kk - 1);
-        if let Some((_, rss)) = ols_subset(cols, rows, y, &gram, &xty, kk, &idx) {
+        s.idx.clear();
+        s.idx.extend(0..=lag);
+        s.idx.push(kk - 1);
+        let fit = ols_subset(cols, rows, y, &s.gram, &s.xty, kk, &s.idx, &mut s.ols);
+        if let Some(rss) = fit {
             let llf = -n_obs / 2.0 * ((2.0 * std::f64::consts::PI).ln() + (rss / n_obs).ln() + 1.0);
-            let aic = -2.0 * llf + 2.0 * (idx.len() as f64);
+            let aic = -2.0 * llf + 2.0 * (s.idx.len() as f64);
             if aic < best_aic || best_aic.is_infinite() {
                 best_aic = aic;
                 best_lag = lag;
@@ -219,18 +260,23 @@ fn adf(values: &[f32], xdiff: &[f64], maxlag: usize, cols: &mut Vec<f64>) -> Opt
         adf_design(values, xdiff, best_lag, best_lag, cols);
         let kk = best_lag + 2;
         let y = &xdiff[best_lag..];
-        let (gram, xty) = gram_matrix(cols, rows, y, kk);
-        let idx: Vec<usize> = (0..kk).collect();
-        if let Some((coeffs, rss)) = ols_subset(cols, rows, y, &gram, &xty, kk, &idx) {
+        gram_matrix(cols, rows, y, kk, &mut s.gram, &mut s.xty);
+        s.idx.clear();
+        s.idx.extend(0..kk);
+        let fit = ols_subset(cols, rows, y, &s.gram, &s.xty, kk, &s.idx, &mut s.ols);
+        if let Some(rss) = fit {
             // (X'X)^-1 [0, 0]
-            let mut a = gram.clone();
-            let mut e0 = vec![0.0; kk];
-            e0[0] = 1.0;
-            if solve_in_place(&mut a, &mut e0, kk) {
+            let a = &mut s.ols.a;
+            a.clear();
+            a.extend_from_slice(&s.gram);
+            s.e0.clear();
+            s.e0.resize(kk, 0.0);
+            s.e0[0] = 1.0;
+            if solve_in_place(a, &mut s.e0, kk) {
                 let sigma2 = rss / (rows as f64 - kk as f64);
-                let var_coeff0 = sigma2 * e0[0];
+                let var_coeff0 = sigma2 * s.e0[0];
                 if var_coeff0 > 0.0 {
-                    t_stat = (coeffs[0] / var_coeff0.sqrt()) as f32;
+                    t_stat = (s.ols.coeffs[0] / var_coeff0.sqrt()) as f32;
                 }
             }
         }

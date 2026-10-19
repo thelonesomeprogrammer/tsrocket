@@ -51,13 +51,24 @@ pub struct FftResult {
     pub spectral_positive_turning: f32,
     pub spectral_variation: f32,
     pub fft_autocorr: Vec<f32>,
-    pub mfcc: Vec<f32>,
-    pub lpcc: Vec<f32>,
-    pub cwt_energy: Vec<f32>,
+    pub mfcc: [f32; 12],
+    pub lpcc: [f32; crate::features::lpc::N_LPCC],
+    /// TSFEL wavelet features over pywt scales 1..10.
+    pub cwt_energy: [f32; 9],
     pub cwt_entropy: f32,
-    pub cwt_abs_mean: Vec<f32>,
-    pub cwt_std: Vec<f32>,
-    pub cwt_var: Vec<f32>,
+    pub cwt_abs_mean: [f32; 9],
+    pub cwt_std: [f32; 9],
+    pub cwt_var: [f32; 9],
     pub cwt_peaks: u16,
     pub welch_density: Vec<f32>,
+}
+
+impl FftResult {
+    /// Hand this window's buffers back to `state` for the next window. The
+    /// DFT itself (`fft_complex`) goes back to wherever the engine keeps it.
+    pub fn recycle(&mut self, state: &mut crate::common::ColumnState) {
+        state.spectrum_buffer = std::mem::take(&mut self.spectrum);
+        state.fft_autocorr_buffer = std::mem::take(&mut self.fft_autocorr);
+        state.welch_density = std::mem::take(&mut self.welch_density);
+    }
 }

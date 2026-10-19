@@ -27,11 +27,16 @@ pub fn rfft(
     let mut indata = std::mem::take(&mut state.fft_in_buffer);
     indata.clear();
     indata.extend_from_slice(values);
-    let mut out = r2c.make_output_vec();
+    let mut out = std::mem::take(&mut state.fft_complex_buffer);
+    out.clear();
+    out.resize(r2c.complex_len(), Complex::new(0.0, 0.0));
+    let mut scratch = std::mem::take(&mut state.fft_scratch_buffer);
+    scratch.resize(r2c.get_scratch_len(), Complex::default());
     let res = r2c
-        .process(&mut indata, &mut out)
+        .process_with_scratch(&mut indata, &mut out, &mut scratch)
         .map_err(|e| e.to_string());
     state.fft_in_buffer = indata;
+    state.fft_scratch_buffer = scratch;
     res.map(|_| out)
 }
 
@@ -80,7 +85,8 @@ pub fn finalize(
     let mut spectral_positive_turning = 0.0;
     let mut spectral_variation = 0.0;
 
-    let mut fft_autocorr = Vec::new();
+    let mut fft_autocorr = std::mem::take(&mut state.fft_autocorr_buffer);
+    fft_autocorr.clear();
 
     if compute.intersects(Compute::FULL_AUTOCORR | Compute::PACF) && n > 1.0 {
         let n2 = values.len() * 2;
@@ -109,8 +115,17 @@ pub fn finalize(
             outdata.resize(complex_len, realfft::num_complex::Complex::new(0.0, 0.0));
         }
 
+        let mut scratch = std::mem::take(&mut state.fft_scratch_buffer);
+        scratch.resize(
+            r2c_ac.get_scratch_len().max(c2r_ac.get_scratch_len()),
+            Complex::default(),
+        );
         r2c_ac
-            .process(&mut indata[..fft_size_ac], &mut outdata[..complex_len])
+            .process_with_scratch(
+                &mut indata[..fft_size_ac],
+                &mut outdata[..complex_len],
+                &mut scratch,
+            )
             .map_err(|e| e.to_string())?;
 
         for c in &mut outdata[..complex_len] {
@@ -123,23 +138,25 @@ pub fn finalize(
         }
 
         c2r_ac
-            .process(&mut outdata[..complex_len], &mut outdata_inv[..fft_size_ac])
+            .process_with_scratch(
+                &mut outdata[..complex_len],
+                &mut outdata_inv[..fft_size_ac],
+                &mut scratch,
+            )
             .map_err(|e| e.to_string())?;
+        state.fft_scratch_buffer = scratch;
 
         let var_ac = if n > 1.0 { m2 / (n - 1.0) } else { 0.0 };
         let m2_val = var_ac * (n - 1.0);
+        let scale = 1.0 / (fft_size_ac as f32);
         if m2_val.abs() > 1e-9 {
-            let scale = 1.0 / (fft_size_ac as f32);
-            fft_autocorr = outdata_inv[..values.len()]
-                .iter()
-                .map(|&v| (v * scale) / m2_val)
-                .collect();
+            fft_autocorr.extend(
+                outdata_inv[..values.len()]
+                    .iter()
+                    .map(|&v| (v * scale) / m2_val),
+            );
         } else {
-            let scale = 1.0 / (fft_size_ac as f32);
-            fft_autocorr = outdata_inv[..values.len()]
-                .iter()
-                .map(|&v| v * scale)
-                .collect();
+            fft_autocorr.extend(outdata_inv[..values.len()].iter().map(|&v| v * scale));
         }
 
         state.fft_in_buffer = indata;
@@ -484,7 +501,7 @@ pub fn finalize(
     // TSFEL power_bandwidth: scipy.signal.welch(signal / std(signal), fs,
     // nperseg=len(signal)) — a distinct Welch config from the tsfresh WELCH
     // path above (full-length segment, fs rather than 1, std-normalised), so
-    // it needs its own call, reusing `welch_psd` rather than a new algorithm.
+    // it needs its own call, reusing `WelchCache` rather than a new algorithm.
     let mut power_bandwidth = 0.0;
     if compute.intersects(Compute::POWER_BANDWIDTH) && !values.is_empty() && !is_constant_window {
         let pop_var = if n > 0.0 { m2 / n } else { 0.0 };
@@ -497,8 +514,10 @@ pub fn finalize(
             norm_buf.extend_from_slice(values);
         }
         let nperseg = norm_buf.len();
-        let power = welch_psd(&norm_buf, nperseg, fs)?;
-        state.fft_in_buffer = norm_buf;
+        let power = state
+            .welch_full
+            .get_or_insert_default()
+            .psd(&norm_buf, nperseg, fs)?;
 
         let total: f32 = power.iter().sum();
         if total > 0.0 && nperseg > 0 {
@@ -530,31 +549,28 @@ pub fn finalize(
                 power_bandwidth = ((upper_idx as f32 - li as f32) * freq_step_pb).abs();
             }
         }
+        state.fft_in_buffer = norm_buf;
     }
 
-    let mut mfcc = Vec::new();
-    let mut lpcc = Vec::new();
-    let mut cwt_energy = Vec::new();
+    let mut mfcc = [0.0; 12];
+    let mut lpcc = [0.0; crate::features::lpc::N_LPCC];
+    let mut cwt_energy = [0.0; 9];
     let mut cwt_entropy = 0.0;
-    let mut cwt_abs_mean = Vec::new();
-    let mut cwt_std = Vec::new();
-    let mut cwt_var = Vec::new();
+    let mut cwt_abs_mean = [0.0; 9];
+    let mut cwt_std = [0.0; 9];
+    let mut cwt_var = [0.0; 9];
 
     if compute.intersects(Compute::LPCC) {
         lpcc = crate::features::lpc::compute_lpcc(values);
     }
 
     if compute.intersects(Compute::MFCC) {
-        mfcc = tsfel_mfcc(values, fs)?;
+        mfcc = tsfel_mfcc(values, fs, state)?;
     }
 
     if compute.intersects(Compute::CWT_MEXH) {
         // TSFEL wavelet_energy / wavelet_entropy / wavelet_abs_mean / wavelet_std /
         // wavelet_var: pywt.cwt(x, 1..10, "mexh").
-        cwt_energy = vec![0.0; 9];
-        cwt_abs_mean = vec![0.0; 9];
-        cwt_std = vec![0.0; 9];
-        cwt_var = vec![0.0; 9];
         if !values.is_empty() {
             let n_vals = values.len() as f32;
             let mut abs_sums = [0.0f32; 9];
@@ -585,10 +601,16 @@ pub fn finalize(
         }
     }
 
-    let mut welch_density = Vec::new();
+    let mut welch_density = std::mem::take(&mut state.welch_density);
+    welch_density.clear();
     if compute.intersects(Compute::WELCH) && !values.is_empty() {
         // tsfresh spkt_welch_density: scipy.signal.welch(x, nperseg=min(n, 256)), fs = 1.
-        welch_density = welch_psd(values, values.len().min(256), 1.0)?;
+        let psd =
+            state
+                .welch_tsfresh
+                .get_or_insert_default()
+                .psd(values, values.len().min(256), 1.0)?;
+        welch_density.extend_from_slice(psd);
     }
 
     let cwt_peaks = 0;
@@ -768,22 +790,35 @@ pub fn averaged_periodogram(
     Ok(())
 }
 
-/// scipy.signal.welch(values, fs, nperseg) with its defaults: periodic Hann
-/// window, 50% overlap, constant detrend per segment, one-sided density.
-pub fn welch_psd(values: &[f32], nperseg: usize, fs: f32) -> Result<Vec<f32>, String> {
-    let window: Vec<f32> = (0..nperseg)
-        .map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / nperseg as f32).cos())
-        .collect();
-    let mut psd = Vec::new();
-    averaged_periodogram(
-        values,
-        &window,
-        nperseg / 2,
-        fs,
-        &mut psd,
-        &mut PeriodogramScratch::default(),
-    )?;
-    Ok(psd)
+/// Per-column buffers for [`WelchCache::psd`]: the window is rebuilt only
+/// when `nperseg` changes.
+#[derive(Clone, Default)]
+pub struct WelchCache {
+    window: Vec<f32>,
+    psd: Vec<f32>,
+    scratch: PeriodogramScratch,
+}
+
+impl WelchCache {
+    /// scipy.signal.welch(values, fs, nperseg) with its defaults: periodic Hann
+    /// window, 50% overlap, constant detrend per segment, one-sided density.
+    pub fn psd(&mut self, values: &[f32], nperseg: usize, fs: f32) -> Result<&[f32], String> {
+        if self.window.len() != nperseg {
+            self.window.clear();
+            self.window.extend((0..nperseg).map(|i| {
+                0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / nperseg as f32).cos()
+            }));
+        }
+        averaged_periodogram(
+            values,
+            &self.window,
+            nperseg / 2,
+            fs,
+            &mut self.psd,
+            &mut self.scratch,
+        )?;
+        Ok(&self.psd)
+    }
 }
 
 /// `scipy.signal.get_window(('tukey', alpha), n)`: the periodic Tukey window,
@@ -881,15 +916,15 @@ impl SpectrogramCache {
 /// TSFEL mfcc(signal, fs): pre-emphasis 0.97, 512-point power spectrum,
 /// 40 mel filters in dB, orthonormal DCT-II coefficients 1..=12, mean-centred,
 /// sinusoidal lifter 22.
-fn tsfel_mfcc(values: &[f32], fs: f32) -> Result<Vec<f32>, String> {
+fn tsfel_mfcc(values: &[f32], fs: f32, state: &mut ColumnState) -> Result<[f32; 12], String> {
     const NFFT: usize = 512;
     const NFILT: usize = 40;
     const NUM_CEPS: usize = 12;
     if values.is_empty() {
-        return Ok(vec![0.0; NUM_CEPS]);
+        return Ok([0.0; NUM_CEPS]);
     }
     // np.fft.rfft(emphasized, 512): truncates or zero-pads to 512.
-    let mut indata = vec![0.0f32; NFFT];
+    let mut indata = [0.0f32; NFFT];
     for (i, d) in indata.iter_mut().enumerate().take(values.len()) {
         *d = if i == 0 {
             values[0]
@@ -898,26 +933,23 @@ fn tsfel_mfcc(values: &[f32], fs: f32) -> Result<Vec<f32>, String> {
         };
     }
     let r2c = plan_forward(NFFT);
-    let mut out = r2c.make_output_vec();
-    r2c.process(&mut indata, &mut out)
-        .map_err(|e| e.to_string())?;
-    let pow: Vec<f64> = out
-        .iter()
-        .map(|c| c.norm_sqr() as f64 / NFFT as f64)
-        .collect();
+    let mut out = [Complex::new(0.0f32, 0.0); NFFT / 2 + 1];
+    let mut scratch = std::mem::take(&mut state.fft_scratch_buffer);
+    scratch.resize(r2c.get_scratch_len(), Complex::default());
+    let res = r2c
+        .process_with_scratch(&mut indata, &mut out, &mut scratch)
+        .map_err(|e| e.to_string());
+    state.fft_scratch_buffer = scratch;
+    res?;
+    let pow = out.map(|c| c.norm_sqr() as f64 / NFFT as f64);
 
     let fs = fs as f64;
     let high_mel = 2595.0 * (1.0 + (fs / 2.0) / 700.0).log10();
-    let hz: Vec<f64> = (0..NFILT + 2)
-        .map(|i| {
-            let mel = high_mel * i as f64 / (NFILT + 1) as f64;
-            700.0 * (10f64.powf(mel / 2595.0) - 1.0)
-        })
-        .collect();
-    let bin: Vec<f64> = hz
-        .iter()
-        .map(|h| ((NFFT + 1) as f64 * h / fs).floor())
-        .collect();
+    let hz: [f64; NFILT + 2] = std::array::from_fn(|i| {
+        let mel = high_mel * i as f64 / (NFILT + 1) as f64;
+        700.0 * (10f64.powf(mel / 2595.0) - 1.0)
+    });
+    let bin = hz.map(|h| ((NFFT + 1) as f64 * h / fs).floor());
 
     let mut banks = [0.0f64; NFILT];
     for m in 1..=NFILT {
@@ -935,24 +967,22 @@ fn tsfel_mfcc(values: &[f32], fs: f32) -> Result<Vec<f32>, String> {
     }
 
     let ortho = (2.0 / NFILT as f64).sqrt();
-    let mut ceps: Vec<f64> = (1..=NUM_CEPS)
-        .map(|k| {
-            ortho
-                * banks
-                    .iter()
-                    .enumerate()
-                    .map(|(i, b)| {
-                        b * (std::f64::consts::PI * k as f64 * (2 * i + 1) as f64
-                            / (2 * NFILT) as f64)
-                            .cos()
-                    })
-                    .sum::<f64>()
-        })
-        .collect();
+    let mut ceps: [f64; NUM_CEPS] = std::array::from_fn(|c| {
+        let k = c + 1;
+        ortho
+            * banks
+                .iter()
+                .enumerate()
+                .map(|(i, b)| {
+                    b * (std::f64::consts::PI * k as f64 * (2 * i + 1) as f64 / (2 * NFILT) as f64)
+                        .cos()
+                })
+                .sum::<f64>()
+    });
     let mean = ceps.iter().sum::<f64>() / NUM_CEPS as f64 + 1e-8;
     for (i, c) in ceps.iter_mut().enumerate() {
         let lift = 1.0 + 11.0 * (std::f64::consts::PI * i as f64 / 22.0).sin();
         *c = (*c - mean) * lift;
     }
-    Ok(ceps.into_iter().map(|c| c as f32).collect())
+    Ok(ceps.map(|c| c as f32))
 }

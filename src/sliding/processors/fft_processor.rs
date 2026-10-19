@@ -34,14 +34,26 @@ impl FftProcessor {
                 .as_ref()
                 .is_none_or(|s| s.updates >= rebuild_every);
             if stale {
+                // Keep the twiddles; the old bins become the FFT's output buffer.
+                if let Some(sdft) = state.sliding_dft.as_mut() {
+                    state.fft_complex_buffer = std::mem::take(&mut sdft.bins);
+                }
                 let bins = crate::spectral::rfft(values, r2c.as_ref(), state)?;
-                state.sliding_dft = Some(SlidingDFT::from_fft(bins, values.len()));
+                match state.sliding_dft.as_mut() {
+                    Some(sdft) if sdft.n == values.len() => {
+                        sdft.bins = bins;
+                        sdft.updates = 0;
+                    }
+                    _ => state.sliding_dft = Some(SlidingDFT::from_fft(bins, values.len())),
+                }
             }
-            if let Some(sdft) = &state.sliding_dft {
-                fft_complex = sdft.bins.clone();
+            // Lent to the FftResult for this window; the engine puts it back
+            // (`SlidingEngine::finalize_results`) before the next update.
+            if let Some(sdft) = state.sliding_dft.as_mut() {
+                fft_complex = std::mem::take(&mut sdft.bins);
             }
         }
-        crate::spectral::finalize(
+        let res = crate::spectral::finalize(
             compute,
             values,
             n,
@@ -50,6 +62,11 @@ impl FftProcessor {
             fft_complex,
             values.len(),
             state,
-        )
+        );
+        if res.is_err() {
+            // The bins went down with the result: rebuild from a fresh FFT.
+            state.sliding_dft = None;
+        }
+        res
     }
 }

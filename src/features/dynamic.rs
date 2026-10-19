@@ -28,7 +28,7 @@ pub fn eval_dynamic(feat: &Feature, context: &mut crate::context::FeatureContext
                     if n <= k_val {
                         return Vec::new();
                     }
-                    let (xtx, xty) = compute_ar_matrices_full(values, k_val);
+                    let (xtx, xty) = compute_ar_matrices_full(values, k_val, &mut state.ar_values);
                     solve_ols_f64(&xtx, &xty).unwrap_or_default()
                 });
                 // When the fit fails tsfresh falls back to k NaNs, so asking
@@ -51,11 +51,14 @@ pub fn eval_dynamic(feat: &Feature, context: &mut crate::context::FeatureContext
                 .or_insert_with(|| vec![]);
 
             if coeffs.is_empty() {
-                let mut signal = std::mem::take(&mut state.workspace_f64_1);
-                let mut delta = std::mem::take(&mut state.workspace_f64_2);
-                *coeffs = compute_friedrich_coeffs(values, m_val, r_val, &mut signal, &mut delta);
-                state.workspace_f64_1 = signal;
-                state.workspace_f64_2 = delta;
+                *coeffs = compute_friedrich_coeffs(
+                    values,
+                    m_val,
+                    r_val,
+                    &mut state.friedrich_signal,
+                    &mut state.friedrich_delta,
+                    &mut state.friedrich_sorted,
+                );
             }
 
             if coeff_val < coeffs.len() {
@@ -77,12 +80,14 @@ pub fn eval_dynamic(feat: &Feature, context: &mut crate::context::FeatureContext
                     .or_insert_with(|| vec![]);
 
                 if coeffs.is_empty() {
-                    let mut signal = std::mem::take(&mut state.workspace_f64_1);
-                    let mut delta = std::mem::take(&mut state.workspace_f64_2);
-                    *coeffs =
-                        compute_friedrich_coeffs(values, m_val, r_val, &mut signal, &mut delta);
-                    state.workspace_f64_1 = signal;
-                    state.workspace_f64_2 = delta;
+                    *coeffs = compute_friedrich_coeffs(
+                        values,
+                        m_val,
+                        r_val,
+                        &mut state.friedrich_signal,
+                        &mut state.friedrich_delta,
+                        &mut state.friedrich_sorted,
+                    );
                 }
 
                 let max_root = compute_max_langevin(coeffs);
@@ -98,12 +103,18 @@ pub fn eval_dynamic(feat: &Feature, context: &mut crate::context::FeatureContext
     res
 }
 
-fn compute_ar_matrices_full(values: &[f32], k: usize) -> (Array2<f64>, Array1<f64>) {
+fn compute_ar_matrices_full(
+    values: &[f32],
+    k: usize,
+    v64: &mut Vec<f64>,
+) -> (Array2<f64>, Array1<f64>) {
     let m = k + 1;
     let mut xtx = Array2::<f64>::zeros((m, m));
     let mut xty = Array1::<f64>::zeros(m);
 
-    let v64: Vec<f64> = values.iter().map(|&x| x as f64).collect();
+    v64.clear();
+    v64.extend(values.iter().map(|&x| x as f64));
+    let v64 = &v64[..];
     let n = values.len();
 
     // Use SIMD for full matrices
@@ -334,6 +345,7 @@ fn compute_friedrich_coeffs(
     r: f32,
     signal: &mut Vec<f64>,
     delta: &mut Vec<f64>,
+    sorted: &mut Vec<f64>,
 ) -> Vec<f32> {
     let n = values.len();
     if n < 2 {
@@ -355,7 +367,9 @@ fn compute_friedrich_coeffs(
     if r_int < 1 {
         return vec![f32::NAN; m + 1];
     }
-    let mut sorted = signal.clone();
+    let sorted = &mut *sorted;
+    sorted.clear();
+    sorted.extend_from_slice(signal);
     sorted.sort_by(f64::total_cmp);
     let last = (sorted.len() - 1) as f64;
     let edges: Vec<f64> = (0..=r_int)

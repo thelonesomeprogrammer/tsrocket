@@ -170,16 +170,19 @@ impl<'a> SlidingEngine<'a> {
         QueueProcessor::update_incremental(self.compute, new_val, global_idx, window_size, state);
     }
 
+    /// Appends this window's features to `out`.
     #[inline(always)]
     pub(crate) fn process_column(
         &self,
         values: &[f32],
         state: &mut ColumnState,
         is_incremental: bool,
-    ) -> Result<Vec<f32>, String> {
+        out: &mut Vec<f32>,
+    ) -> Result<(), String> {
         let n = values.len() as f32;
         if n == 0.0 {
-            return Ok(vec![0.0; self.features.len()]);
+            out.resize(out.len() + self.features.len(), 0.0);
+            return Ok(());
         }
 
         StatsProcessor::reset_state(state, is_incremental);
@@ -216,7 +219,7 @@ impl<'a> SlidingEngine<'a> {
         self.process_remainder(values, rem_start, state, is_incremental);
 
         // Post-processing and Pass 2
-        self.finalize_results(values, n, state)
+        self.finalize_results(values, n, state, out)
     }
     #[inline(always)]
     fn process_simd_chunks(
@@ -377,7 +380,8 @@ impl<'a> SlidingEngine<'a> {
         values: &[f32],
         n: f32,
         state: &mut ColumnState,
-    ) -> Result<Vec<f32>, String> {
+        out: &mut Vec<f32>,
+    ) -> Result<(), String> {
         StatsProcessor::finalize_simd(self.compute, state);
         DiffProcessor::finalize_simd(self.compute, state);
         TrendProcessor::finalize_simd(self.compute, state);
@@ -417,11 +421,16 @@ impl<'a> SlidingEngine<'a> {
             self.unique_range_counts,
         );
 
-        let mut feats = Vec::with_capacity(self.features.len());
-        for feat in self.features {
-            let val = crate::features::eval(feat, &mut context);
-            feats.push(val);
+        out.extend(
+            self.features
+                .iter()
+                .map(|feat| crate::features::eval(feat, &mut context)),
+        );
+
+        fft_res.recycle(state);
+        if let Some(sdft) = state.sliding_dft.as_mut() {
+            sdft.bins = std::mem::take(&mut fft_res.fft_complex);
         }
-        Ok(feats)
+        Ok(())
     }
 }

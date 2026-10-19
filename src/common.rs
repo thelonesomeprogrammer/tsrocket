@@ -118,7 +118,6 @@ pub struct ColumnState {
     pub max_q_head: usize,
     pub max_q_tail: usize,
     pub max_q_len: usize,
-    pub approx_entropy_buffer: Vec<usize>,
     pub binned_entropy_buffer: Vec<f32>,
     /// numpy bin edges as exact f32 thresholds (binned_entropy, LZ complexity).
     pub bin_edges: Vec<f32>,
@@ -129,13 +128,28 @@ pub struct ColumnState {
     /// `(r bits, A, B)` from `sample_entropy_counts(values, 2, r)` on the current
     /// window, shared by `sample_entropy` and `tsfresh_sample_entropy`.
     pub sample_entropy_counts: Option<(u32, u32, u32)>,
-    pub workspace_f64_1: Vec<f64>,
-    pub workspace_f64_2: Vec<f64>,
-    pub workspace_f64_3: Vec<f64>,
-    pub workspace_f64_4: Vec<f64>,
-    pub workspace_f64_5: Vec<f64>,
-    pub workspace_f64_6: Vec<f64>,
-    pub workspace_f64_7: Vec<f64>,
+    /// DFA / Hurst (R/S): deduplicated window scales and log-log fit points.
+    pub scaling_scales: Vec<usize>,
+    pub scaling_log_scales: Vec<f64>,
+    /// DFA: ln(fluctuation), Hurst: log10(R/S).
+    pub scaling_log_values: Vec<f64>,
+    /// DFA / Hurst prefix sums: sum(y), sum(y^2), sum(i * y) (the last DFA only).
+    pub prefix_sum: Vec<f64>,
+    pub prefix_sum_sq: Vec<f64>,
+    pub prefix_sum_weighted: Vec<f64>,
+    /// ADF: first differences and the column-major regression design matrix.
+    pub adf_xdiff: Vec<f64>,
+    pub adf_design: Vec<f64>,
+    /// Boxed and created on first use: `ColumnState` is rebuilt per column
+    /// by the static engine, so cold scratch shouldn't add to its size.
+    pub adf_scratch: Option<Box<crate::features::stationarity::AdfScratch>>,
+    /// Friedrich coefficients: x_t and x_{t+1} - x_t.
+    pub friedrich_signal: Vec<f64>,
+    pub friedrich_delta: Vec<f64>,
+    /// Friedrich coefficients: sorted x_t for the quantile bin edges.
+    pub friedrich_sorted: Vec<f64>,
+    /// AR coefficients: the window as f64.
+    pub ar_values: Vec<f64>,
     pub higuchi_lk: Vec<f64>,
     pub higuchi_k_values: Vec<f64>,
     pub sort_buffer: Vec<f32>,
@@ -163,11 +177,23 @@ pub struct ColumnState {
     pub last_fft_n: usize,
     pub last_fft_complex: Vec<num_complex::Complex<f32>>,
     pub fft_in_buffer: Vec<f32>,
+    /// `spectral::rfft` output, recycled between windows.
+    pub fft_complex_buffer: Vec<num_complex::Complex<f32>>,
+    /// `FftResult::fft_autocorr`, recycled between windows.
+    pub fft_autocorr_buffer: Vec<f32>,
+    /// realfft `process_with_scratch` scratch (`process` allocates one per call).
+    pub fft_scratch_buffer: Vec<num_complex::Complex<f32>>,
     pub fft_out_buffer: Vec<num_complex::Complex<f32>>,
     pub fft_inv_buffer: Vec<f32>,
     pub sliding_dft: Option<SlidingDFT>,
     pub cwt_peaks: u16,
+    /// `FftResult::welch_density`, recycled between windows.
     pub welch_density: Vec<f32>,
+    /// Welch PSD with `nperseg = n` (power_bandwidth, max_power_spectrum).
+    /// Boxed and created on first use, like `adf_scratch`.
+    pub welch_full: Option<Box<crate::spectral::WelchCache>>,
+    /// Welch PSD with `nperseg = min(n, 256)`, fs = 1 (spkt_welch_density).
+    pub welch_tsfresh: Option<Box<crate::spectral::WelchCache>>,
     /// Per-window spectrogram means for `spectrogram_mean_coeff`.
     pub spectrogram: crate::spectral::SpectrogramCache,
     pub spectrum_buffer: Vec<f32>,
@@ -306,20 +332,25 @@ impl ColumnState {
             max_q_head: 0,
             max_q_tail: 0,
             max_q_len: 0,
-            approx_entropy_buffer: Vec::new(),
             binned_entropy_buffer: Vec::new(),
             bin_edges: Vec::new(),
             agg_linear_trend_buffer: Vec::new(),
             mse_buffer: Vec::new(),
             approx_entropy_counts: Vec::new(),
             sample_entropy_counts: None,
-            workspace_f64_1: Vec::new(),
-            workspace_f64_2: Vec::new(),
-            workspace_f64_3: Vec::new(),
-            workspace_f64_4: Vec::new(),
-            workspace_f64_5: Vec::new(),
-            workspace_f64_6: Vec::new(),
-            workspace_f64_7: Vec::new(),
+            scaling_scales: Vec::new(),
+            scaling_log_scales: Vec::new(),
+            scaling_log_values: Vec::new(),
+            prefix_sum: Vec::new(),
+            prefix_sum_sq: Vec::new(),
+            prefix_sum_weighted: Vec::new(),
+            adf_xdiff: Vec::new(),
+            adf_design: Vec::new(),
+            adf_scratch: None,
+            friedrich_signal: Vec::new(),
+            friedrich_delta: Vec::new(),
+            friedrich_sorted: Vec::new(),
+            ar_values: Vec::new(),
             higuchi_lk: Vec::new(),
             higuchi_k_values: Vec::new(),
             sort_buffer: Vec::new(),
@@ -344,11 +375,16 @@ impl ColumnState {
             last_fft_n: 0,
             last_fft_complex: Vec::new(),
             fft_in_buffer: Vec::new(),
+            fft_complex_buffer: Vec::new(),
+            fft_autocorr_buffer: Vec::new(),
+            fft_scratch_buffer: Vec::new(),
             fft_out_buffer: Vec::new(),
             fft_inv_buffer: Vec::new(),
             sliding_dft: None,
             cwt_peaks: 0,
             welch_density: Vec::new(),
+            welch_full: None,
+            welch_tsfresh: None,
             matrix_profile: Vec::new(),
             matrix_profile_m: 0,
             matrix_profile_scratch: Vec::new(),

@@ -220,7 +220,7 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mut log_scales = std::mem::take(&mut state.workspace_f64_5);
     log_scales.clear();
-    let mut log_flucts_f64 = std::mem::take(&mut state.workspace_f64_1);
+    let mut log_flucts_f64 = std::mem::take(&mut state.workspace_f64_6);
     log_flucts_f64.clear();
 
     for &s in &scales {
@@ -266,6 +266,12 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mut i_plateau = log_flucts_f64.len();
     if log_flucts_f64.len() > 5 {
+        let mut dy = std::mem::take(&mut state.workspace_f64_7);
+        dy.clear();
+        for i in 0..log_flucts_f64.len() - 1 {
+            dy.push(log_flucts_f64[i + 1] - log_flucts_f64[i]);
+        }
+
         let mean_y = log_flucts_f64.iter().sum::<f64>() / (log_flucts_f64.len() as f64);
         let consecutive_points = 5;
         let dy_len = log_flucts_f64.len() - 1;
@@ -290,6 +296,7 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
                 }
             }
         }
+        state.workspace_f64_7 = dy;
     }
 
     state.workspace_f64_2 = y_pref;
@@ -323,6 +330,7 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     state.workspace_f64_1 = log_flucts_f64;
     state.workspace_f64_5 = log_scales;
+    state.workspace_f64_6 = log_flucts_f64;
 
     res
 }

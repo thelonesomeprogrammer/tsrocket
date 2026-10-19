@@ -349,6 +349,7 @@ pub fn eval_distribution(
             }
 
             if diffs.is_empty() {
+                state.diff_buffer = diffs;
                 return Some(0.0);
             }
 
@@ -369,7 +370,7 @@ pub fn eval_distribution(
                 }
                 crate::types::AggFunc::Min => diffs.iter().cloned().fold(f32::INFINITY, f32::min),
                 crate::types::AggFunc::Median => super::median_in_place(&mut diffs),
-};
+            };
             state.diff_buffer = diffs;
             res
         }
@@ -398,10 +399,18 @@ pub fn eval_distribution(
             }
             let total: f32 = counts.iter().sum();
             if total > 0.0 {
-                let p: Vec<f32> = counts.iter().map(|&c| c / total).collect();
-                let b: Vec<f32> = (1..10).map(|i| (1.0 + 1.0 / i as f32).log10()).collect();
-                let mu_p = p.iter().sum::<f32>() / 9.0;
-                let mu_b = b.iter().sum::<f32>() / 9.0;
+                let mut p = [0.0; 9];
+                let mut b = [0.0; 9];
+                let mut mu_p = 0.0;
+                let mut mu_b = 0.0;
+                for i in 0..9 {
+                    p[i] = counts[i] / total;
+                    b[i] = (1.0 + 1.0 / (i + 1) as f32).log10();
+                    mu_p += p[i];
+                    mu_b += b[i];
+                }
+                mu_p /= 9.0;
+                mu_b /= 9.0;
                 let mut num = 0.0;
                 let mut den_p = 0.0;
                 let mut den_b = 0.0;

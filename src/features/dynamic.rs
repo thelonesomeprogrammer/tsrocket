@@ -48,7 +48,15 @@ pub fn eval_dynamic(feat: &Feature, context: &mut crate::context::FeatureContext
             let coeffs = state
                 .friedrich_coeffs
                 .entry((*m, *r_bits))
-                .or_insert_with(|| compute_friedrich_coeffs(values, m_val, r_val));
+                .or_insert_with(|| vec![]);
+
+            if coeffs.is_empty() {
+                let mut signal = std::mem::take(&mut state.workspace_f64_1);
+                let mut delta = std::mem::take(&mut state.workspace_f64_2);
+                *coeffs = compute_friedrich_coeffs(values, m_val, r_val, &mut signal, &mut delta);
+                state.workspace_f64_1 = signal;
+                state.workspace_f64_2 = delta;
+            }
 
             if coeff_val < coeffs.len() {
                 res = Some(coeffs[coeff_val]);
@@ -60,17 +68,29 @@ pub fn eval_dynamic(feat: &Feature, context: &mut crate::context::FeatureContext
             let m_val = *m as usize;
             let r_val = f32::from_bits(*r_bits);
 
-            let max_root = *state
-                .max_langevin_fixed_point_cache
-                .entry((*m, *r_bits))
-                .or_insert_with(|| {
-                    let coeffs = state
-                        .friedrich_coeffs
-                        .entry((*m, *r_bits))
-                        .or_insert_with(|| compute_friedrich_coeffs(values, m_val, r_val));
-                    compute_max_langevin(coeffs)
-                });
-            res = Some(max_root);
+            if let Some(&max_root) = state.max_langevin_fixed_point_cache.get(&(*m, *r_bits)) {
+                res = Some(max_root);
+            } else {
+                let coeffs = state
+                    .friedrich_coeffs
+                    .entry((*m, *r_bits))
+                    .or_insert_with(|| vec![]);
+
+                if coeffs.is_empty() {
+                    let mut signal = std::mem::take(&mut state.workspace_f64_1);
+                    let mut delta = std::mem::take(&mut state.workspace_f64_2);
+                    *coeffs =
+                        compute_friedrich_coeffs(values, m_val, r_val, &mut signal, &mut delta);
+                    state.workspace_f64_1 = signal;
+                    state.workspace_f64_2 = delta;
+                }
+
+                let max_root = compute_max_langevin(coeffs);
+                state
+                    .max_langevin_fixed_point_cache
+                    .insert((*m, *r_bits), max_root);
+                res = Some(max_root);
+            }
         }
         _ => return None,
     }
@@ -308,14 +328,20 @@ fn compute_ar_coeffs(values: &[f32], k: usize) -> Vec<f32> {
     }
 }
 
-fn compute_friedrich_coeffs(values: &[f32], m: usize, r: f32) -> Vec<f32> {
+fn compute_friedrich_coeffs(
+    values: &[f32],
+    m: usize,
+    r: f32,
+    signal: &mut Vec<f64>,
+    delta: &mut Vec<f64>,
+) -> Vec<f32> {
     let n = values.len();
     if n < 2 {
         return vec![f32::NAN; m + 1];
     }
 
-    let mut signal = Vec::with_capacity(n - 1);
-    let mut delta = Vec::with_capacity(n - 1);
+    signal.clear();
+    delta.clear();
 
     for i in 0..n - 1 {
         signal.push(values[i] as f64);
@@ -347,7 +373,7 @@ fn compute_friedrich_coeffs(values: &[f32], m: usize, r: f32) -> Vec<f32> {
     let mut sum_x = vec![0.0f64; r_int];
     let mut sum_y = vec![0.0f64; r_int];
     let mut count = vec![0usize; r_int];
-    for (&sx, &dy) in signal.iter().zip(&delta) {
+    for (&sx, &dy) in signal.iter().zip(delta.iter()) {
         // First bin whose right edge is >= sx.
         let bin = edges[1..].partition_point(|&e| e < sx).min(r_int - 1);
         sum_x[bin] += sx;

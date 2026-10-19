@@ -46,3 +46,7 @@ Action: Reused fft_in_buffer and fft_out_buffer for realfft processing and remov
 ## 2026-10-18 - Eliminating intermediate arrays in sliding window evaluation
 **Learning:** Initializing intermediate vectors (like `dy = Vec::with_capacity(...)`) for localized sliding difference checks inside window calculations causes redundant heap allocations.
 **Action:** Replace `Vec` allocations with lazy iterative evaluations directly indexing into the source array within the inner check loop (`arr[i+1] - arr[i]`) whenever intermediate values are only consumed immediately.
+
+## 2026-10-18 - [Performance Insight: Inner loop vector allocation]
+**Learning:** Repetitive inner loop allocations for vectors (like `signal` and `delta` in `compute_friedrich_coeffs`) causes high memory allocation overhead resulting in performance slowdowns.
+**Action:** Re-use vectors pre-allocated in `ColumnState` spaces (like `workspace_f64_1` and `workspace_f64_2`) by exchanging ownership of vectors and clearing them to avoid allocations.

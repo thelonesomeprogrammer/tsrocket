@@ -29,10 +29,39 @@ fn tsfresh(s: &str) -> Option<String> {
 /// Every parameter name tsfresh uses. Longest match wins, so `max_bins_10` is
 /// `max_bins`, not `max`.
 const TSFRESH_PARAMS: &[&str] = &[
-    "aggtype", "attr", "autolag", "bins", "chunk_len", "coeff", "dimension", "f_agg", "feature",
-    "isabs", "k", "lag", "m", "max", "max_bins", "maxlag", "min", "n", "normalize",
-    "num_segments", "number_of_maxima", "q", "qh", "ql", "query", "r", "segment_focus", "t",
-    "tau", "threshold", "value", "w", "widths",
+    "aggtype",
+    "attr",
+    "autolag",
+    "bins",
+    "chunk_len",
+    "coeff",
+    "dimension",
+    "f_agg",
+    "feature",
+    "isabs",
+    "k",
+    "lag",
+    "m",
+    "max",
+    "max_bins",
+    "maxlag",
+    "min",
+    "n",
+    "normalize",
+    "num_segments",
+    "number_of_maxima",
+    "q",
+    "qh",
+    "ql",
+    "query",
+    "r",
+    "segment_focus",
+    "t",
+    "tau",
+    "threshold",
+    "value",
+    "w",
+    "widths",
 ];
 
 /// `param_value` segments of one tsfresh column name. Every parameter must be
@@ -45,7 +74,9 @@ impl<'a> Params<'a> {
         for seg in segments {
             let key = TSFRESH_PARAMS
                 .iter()
-                .filter(|k| seg.len() > k.len() && seg.starts_with(*k) && seg.as_bytes()[k.len()] == b'_')
+                .filter(|k| {
+                    seg.len() > k.len() && seg.starts_with(*k) && seg.as_bytes()[k.len()] == b'_'
+                })
                 .max_by_key(|k| k.len())?;
             // String values are quoted: attr_"abs".
             let value = seg[key.len() + 1..].trim_matches('"');
@@ -75,12 +106,27 @@ fn tsfresh_calculator(name: &str, segments: &[&str]) -> Option<String> {
         "first_location_of_minimum" => "first_loc_min".into(),
         "last_location_of_minimum" => "last_loc_min".into(),
         "sample_entropy" => "tsfresh_sample_entropy".into(),
-        "mean" | "median" | "variance" | "skewness" | "kurtosis" | "length"
-        | "mean_abs_change" | "mean_change" | "mean_second_derivative_central"
-        | "variation_coefficient" | "root_mean_square" | "count_above_mean"
-        | "count_below_mean" | "longest_strike_above_mean" | "longest_strike_below_mean"
-        | "has_duplicate" | "has_duplicate_max" | "has_duplicate_min" | "benford_correlation"
-        | "variance_larger_than_standard_deviation" | "sum_of_reoccurring_values"
+        "mean"
+        | "median"
+        | "variance"
+        | "skewness"
+        | "kurtosis"
+        | "length"
+        | "mean_abs_change"
+        | "mean_change"
+        | "mean_second_derivative_central"
+        | "variation_coefficient"
+        | "root_mean_square"
+        | "count_above_mean"
+        | "count_below_mean"
+        | "longest_strike_above_mean"
+        | "longest_strike_below_mean"
+        | "has_duplicate"
+        | "has_duplicate_max"
+        | "has_duplicate_min"
+        | "benford_correlation"
+        | "variance_larger_than_standard_deviation"
+        | "sum_of_reoccurring_values"
         | "sum_of_reoccurring_data_points"
         | "percentage_of_reoccurring_values_to_all_values"
         | "percentage_of_reoccurring_datapoints_to_all_datapoints"
@@ -102,7 +148,11 @@ fn tsfresh_calculator(name: &str, segments: &[&str]) -> Option<String> {
         "autocorrelation" => format!("autocorr-{}", p.take("lag")?),
         "partial_autocorrelation" => format!("partial_autocorr-{}", p.take("lag")?),
         "agg_autocorrelation" => {
-            format!("agg_autocorrelation-{}-{}", p.take("f_agg")?, p.take("maxlag")?)
+            format!(
+                "agg_autocorrelation-{}-{}",
+                p.take("f_agg")?,
+                p.take("maxlag")?
+            )
         }
         "number_peaks" => format!("number_peaks__n_{}", p.take("n")?),
         "number_cwt_peaks" => format!("number_cwt_peaks__n_{}", p.take("n")?),
@@ -161,7 +211,11 @@ fn tsfresh_calculator(name: &str, segments: &[&str]) -> Option<String> {
         "lempel_ziv_complexity" => format!("lempel_ziv_complexity-{}", p.take("bins")?),
         "fourier_entropy" => format!("fourier_entropy-{}", p.take("bins")?),
         "permutation_entropy" => {
-            format!("permutation_entropy-{}-{}", p.take("tau")?, p.take("dimension")?)
+            format!(
+                "permutation_entropy-{}-{}",
+                p.take("tau")?,
+                p.take("dimension")?
+            )
         }
         "mean_n_absolute_max" => {
             format!("mean_n_absolute_max-{}", p.take("number_of_maxima")?)
@@ -226,7 +280,10 @@ const TSFEL_SINGLE: &[(&str, &str)] = &[
     ("Spectral distance", "spectral_distance"),
     ("Spectral entropy", "spectral_entropy"),
     ("Spectral kurtosis", "spectral_kurtosis"),
-    ("Spectral positive turning points", "spectral_positive_turning"),
+    (
+        "Spectral positive turning points",
+        "spectral_positive_turning",
+    ),
     ("Spectral roll-off", "spectral_roll_off"),
     ("Spectral roll-on", "spectral_roll_on"),
     ("Spectral skewness", "spectral_skewness"),
@@ -268,9 +325,10 @@ fn tsfel_feature(s: &str, fs: Option<f32>) -> Option<String> {
             "Wavelet energy" => Some(format!("wavelet_energy-{}", wavelet_index(hz, fs)?)),
             "Wavelet standard deviation" => Some(format!("wavelet_std-{}", wavelet_index(hz, fs)?)),
             "Wavelet variance" => Some(format!("wavelet_var-{}", wavelet_index(hz, fs)?)),
-            "Spectrogram mean coefficient" => {
-                Some(format!("spectrogram_mean_coeff-{}", spectrogram_index(hz, fs)?))
-            }
+            "Spectrogram mean coefficient" => Some(format!(
+                "spectrogram_mean_coeff-{}",
+                spectrogram_index(hz, fs)?
+            )),
             _ => None,
         };
     }
@@ -278,9 +336,10 @@ fn tsfel_feature(s: &str, fs: Option<f32>) -> Option<String> {
     match feature {
         "ECDF" => Some(format!("ecdf-{}", i + 1)),
         "ECDF Percentile" => Some(format!("ecdf_percentile-{}", TSFEL_PERCENTILES.get(i)?)),
-        "ECDF Percentile Count" => {
-            Some(format!("ecdf_percentile_count-{}", TSFEL_PERCENTILES.get(i)?))
-        }
+        "ECDF Percentile Count" => Some(format!(
+            "ecdf_percentile_count-{}",
+            TSFEL_PERCENTILES.get(i)?
+        )),
         "LPCC" => Some(format!("lpcc-{i}")),
         "MFCC" => Some(format!("mfcc-{i}")),
         _ => None,

@@ -52,9 +52,9 @@ pub enum Feature {
     AbsSumChange,
     CountAboveMean,
     CountBelowMean,
-    CountAbove(u32),       // t encoded as f32 bits
-    CountBelow(u32),       // t encoded as f32 bits
-    RangeCount(u32, u32),  // min, max encoded as f32 bits
+    CountAbove(u32),      // t encoded as f32 bits
+    CountBelow(u32),      // t encoded as f32 bits
+    RangeCount(u32, u32), // min, max encoded as f32 bits
     LongestStrikeAboveMean,
     LongestStrikeBelowMean,
     VariationCoefficient,
@@ -111,7 +111,7 @@ pub enum Feature {
     SignalDistance,
     WaveletFeatures(u32, u16), // mother wavelet (freq stored as f32 bits), feature type
     SpectrogramCoefficients(u16, u32), // time, freq stored as f32 bits
-    SpectrogramMeanCoeff(u16, u16),    // coefficient index, bins
+    SpectrogramMeanCoeff(u16, u16), // coefficient index, bins
     PkPkDistance,
     ZeroCross,
     MaxPowerSpectrum,
@@ -223,9 +223,7 @@ impl Feature {
                 C::SUM | C::MEAN | C::VARIANCE | C::STD | C::ENERGY | C::SAMP_ENT | C::NEEDS_SORT
             }
             Self::TsfreshSampleEntropy => C::empty(),
-            Self::Mse(..) => {
-                C::SUM | C::MEAN | C::VARIANCE | C::STD | C::ENERGY | C::NEEDS_SORT
-            }
+            Self::Mse(..) => C::SUM | C::MEAN | C::VARIANCE | C::STD | C::ENERGY | C::NEEDS_SORT,
             Self::BinnedEntropy(_) => C::MIN | C::MAX | C::BINNED_ENT,
             Self::Energy => C::ENERGY,
             Self::EnergyRatioByChunks(_, _) => C::ENERGY,
@@ -294,10 +292,14 @@ impl Feature {
                 C::SUM | C::MEAN | C::VARIANCE | C::ENERGY | C::PACF | C::NEEDS_SORT
             }
             Self::TimeReversalAsymmetry(_) => C::TRA | C::NEEDS_SORT,
-            Self::LempelZiv | Self::LempelZivComplexity(_) => C::SUM | C::MEAN | C::MIN | C::MAX | C::NEEDS_SORT,
+            Self::LempelZiv | Self::LempelZivComplexity(_) => {
+                C::SUM | C::MEAN | C::MIN | C::MAX | C::NEEDS_SORT
+            }
             Self::FftCoefficient(_, _) => C::FFT_COEFF | C::NEEDS_SORT,
             Self::ApproxEntropy(_, _) => C::APPROX_ENT | C::NEEDS_SORT,
-            Self::LinearTrend(_) | Self::LinearTrendTimewise(..) => C::SUM | C::MEAN | C::SLOPE | C::VARIANCE | C::ENERGY,
+            Self::LinearTrend(_) | Self::LinearTrendTimewise(..) => {
+                C::SUM | C::MEAN | C::SLOPE | C::VARIANCE | C::ENERGY
+            }
             Self::AggLinearTrend(_, _, _) => C::AGG_LIN_TREND | C::NEEDS_SORT,
             Self::Quantile(_) => C::QUANTILE | C::NEEDS_SORT,
             Self::ChangeQuantiles(_, _, _, _) => C::QUANTILE | C::NEEDS_SORT,

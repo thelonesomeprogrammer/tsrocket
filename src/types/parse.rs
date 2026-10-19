@@ -275,18 +275,57 @@ fn parse_native(s: &str) -> Option<Feature> {
 
 /// Prefixes of the `name-param...` features, for "did you mean" hints.
 const PARAMETERIZED_NAMES: &[&str] = &[
-    "agg_autocorrelation", "agg_linear_trend", "approx_entropy", "ar_coefficient",
-    "augmented_dickey_fuller", "autocorr", "average_power", "c3", "calc_centroid",
-    "change_quantiles", "count_above", "count_below", "ecdf", "ecdf_percentile",
-    "ecdf_percentile_count", "ecdf_slope", "fft_aggregated", "fft_coeff", "fourier_entropy",
-    "friedrich_coefficients", "hist_mode", "human_range_energy", "index_mass_quantile",
-    "large_standard_deviation", "lempel_ziv_complexity", "linear_trend",
-    "linear_trend_timewise", "lpcc", "matrix_profile", "max_langevin_fixed_point",
-    "mean_n_absolute_max", "mfcc", "mse", "neighbourhood_peaks", "paa", "partial_autocorr",
-    "permutation_entropy", "quantile", "query_similarity_count", "range_count",
-    "ratio_beyond_r_sigma", "spectrogram", "spectrogram_mean_coeff", "symmetry_looking",
-    "time_reversal_asymmetry", "value_count", "wavelet", "wavelet_abs_mean",
-    "wavelet_energy", "wavelet_std", "wavelet_var",
+    "agg_autocorrelation",
+    "agg_linear_trend",
+    "approx_entropy",
+    "ar_coefficient",
+    "augmented_dickey_fuller",
+    "autocorr",
+    "average_power",
+    "c3",
+    "calc_centroid",
+    "change_quantiles",
+    "count_above",
+    "count_below",
+    "ecdf",
+    "ecdf_percentile",
+    "ecdf_percentile_count",
+    "ecdf_slope",
+    "fft_aggregated",
+    "fft_coeff",
+    "fourier_entropy",
+    "friedrich_coefficients",
+    "hist_mode",
+    "human_range_energy",
+    "index_mass_quantile",
+    "large_standard_deviation",
+    "lempel_ziv_complexity",
+    "linear_trend",
+    "linear_trend_timewise",
+    "lpcc",
+    "matrix_profile",
+    "max_langevin_fixed_point",
+    "mean_n_absolute_max",
+    "mfcc",
+    "mse",
+    "neighbourhood_peaks",
+    "paa",
+    "partial_autocorr",
+    "permutation_entropy",
+    "quantile",
+    "query_similarity_count",
+    "range_count",
+    "ratio_beyond_r_sigma",
+    "spectrogram",
+    "spectrogram_mean_coeff",
+    "symmetry_looking",
+    "time_reversal_asymmetry",
+    "value_count",
+    "wavelet",
+    "wavelet_abs_mean",
+    "wavelet_energy",
+    "wavelet_std",
+    "wavelet_var",
 ];
 
 const FEATURE_LIST_URL: &str =
@@ -305,7 +344,9 @@ fn unknown_feature(s: &str) -> String {
         .min();
     match best {
         Some((d, name)) if d > 0 && d <= (s.len() / 4).max(2) => {
-            format!("Unknown feature: {s} (did you mean `{name}`?). Valid names: {FEATURE_LIST_URL}")
+            format!(
+                "Unknown feature: {s} (did you mean `{name}`?). Valid names: {FEATURE_LIST_URL}"
+            )
         }
         _ => format!("Unknown feature: {s}. Valid names: {FEATURE_LIST_URL}"),
     }
@@ -319,7 +360,9 @@ fn edit_distance(a: &str, b: &str) -> usize {
         let mut diag = row[0];
         row[0] = i + 1;
         for (j, &cb) in b.iter().enumerate() {
-            let next = (diag + usize::from(ca != cb)).min(row[j] + 1).min(row[j + 1] + 1);
+            let next = (diag + usize::from(ca != cb))
+                .min(row[j] + 1)
+                .min(row[j + 1] + 1);
             diag = row[j + 1];
             row[j + 1] = next;
         }

@@ -49,12 +49,22 @@ pub(crate) enum EdgeSide {
 /// that makes an f32 comparison exact (`v >= e` iff `v >= ceil32(e)`,
 /// `v > e` iff `v > floor32(e)`), so `numpy_bin` stays in f32. Returns the
 /// scale for the initial guess.
-pub(crate) fn numpy_bin_edges(lo: f32, hi: f32, bins: usize, side: EdgeSide, out: &mut Vec<f32>) -> f32 {
+pub(crate) fn numpy_bin_edges(
+    lo: f32,
+    hi: f32,
+    bins: usize,
+    side: EdgeSide,
+    out: &mut Vec<f32>,
+) -> f32 {
     let (lo64, hi64) = (lo as f64, hi as f64);
     let step = (hi64 - lo64) / bins as f64;
     out.clear();
     out.extend((0..=bins).map(|k| {
-        let e = if k == bins { hi64 } else { k as f64 * step + lo64 };
+        let e = if k == bins {
+            hi64
+        } else {
+            k as f64 * step + lo64
+        };
         let f = e as f32;
         match side {
             EdgeSide::Histogram if (f as f64) < e => f.next_up(),

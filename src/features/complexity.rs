@@ -180,13 +180,13 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mean = values.iter().map(|&v| v as f64).sum::<f64>() / (n as f64);
 
-    let mut y_pref = std::mem::take(&mut state.workspace_f64_2);
+    let mut y_pref = std::mem::take(&mut state.prefix_sum);
     y_pref.resize(n + 1, 0.0);
 
-    let mut y2_pref = std::mem::take(&mut state.workspace_f64_3);
+    let mut y2_pref = std::mem::take(&mut state.prefix_sum_sq);
     y2_pref.resize(n + 1, 0.0);
 
-    let mut iy_pref = std::mem::take(&mut state.workspace_f64_4);
+    let mut iy_pref = std::mem::take(&mut state.prefix_sum_weighted);
     iy_pref.resize(n + 1, 0.0);
 
     let mut current_acc = 0.0;
@@ -202,7 +202,7 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
     let max_scale = n / 10;
     let num_scales = n / 2;
 
-    let mut scales = std::mem::take(&mut state.approx_entropy_buffer);
+    let mut scales = std::mem::take(&mut state.scaling_scales);
     scales.clear();
 
     if num_scales > 1 {
@@ -218,9 +218,9 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
     scales.sort_unstable();
     scales.dedup();
 
-    let mut log_scales = std::mem::take(&mut state.workspace_f64_5);
+    let mut log_scales = std::mem::take(&mut state.scaling_log_scales);
     log_scales.clear();
-    let mut log_flucts_f64 = std::mem::take(&mut state.workspace_f64_6);
+    let mut log_flucts_f64 = std::mem::take(&mut state.scaling_log_values);
     log_flucts_f64.clear();
 
     for &s in &scales {
@@ -266,12 +266,6 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
 
     let mut i_plateau = log_flucts_f64.len();
     if log_flucts_f64.len() > 5 {
-        let mut dy = std::mem::take(&mut state.workspace_f64_7);
-        dy.clear();
-        for i in 0..log_flucts_f64.len() - 1 {
-            dy.push(log_flucts_f64[i + 1] - log_flucts_f64[i]);
-        }
-
         let mean_y = log_flucts_f64.iter().sum::<f64>() / (log_flucts_f64.len() as f64);
         let consecutive_points = 5;
         let dy_len = log_flucts_f64.len() - 1;
@@ -296,13 +290,12 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
                 }
             }
         }
-        state.workspace_f64_7 = dy;
     }
 
-    state.workspace_f64_2 = y_pref;
-    state.workspace_f64_3 = y2_pref;
-    state.workspace_f64_4 = iy_pref;
-    state.approx_entropy_buffer = scales;
+    state.prefix_sum = y_pref;
+    state.prefix_sum_sq = y2_pref;
+    state.prefix_sum_weighted = iy_pref;
+    state.scaling_scales = scales;
 
     let res = if i_plateau > 1 {
         let x = &log_scales[0..i_plateau];
@@ -328,9 +321,8 @@ fn calc_dfa(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
         f32::NAN
     };
 
-    state.workspace_f64_1 = log_flucts_f64;
-    state.workspace_f64_5 = log_scales;
-    state.workspace_f64_6 = log_flucts_f64;
+    state.scaling_log_scales = log_scales;
+    state.scaling_log_values = log_flucts_f64;
 
     res
 }
@@ -359,7 +351,7 @@ fn calc_hurst(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
     let max_scale = n / 10;
     let num_scales = n / 2;
 
-    let mut scales = std::mem::take(&mut state.approx_entropy_buffer);
+    let mut scales = std::mem::take(&mut state.scaling_scales);
     scales.clear();
 
     if num_scales > 1 {
@@ -375,15 +367,15 @@ fn calc_hurst(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
     scales.sort_unstable();
     scales.dedup();
 
-    let mut log_scales = std::mem::take(&mut state.workspace_f64_5);
+    let mut log_scales = std::mem::take(&mut state.scaling_log_scales);
     log_scales.clear();
-    let mut log_rs = std::mem::take(&mut state.workspace_f64_4);
+    let mut log_rs = std::mem::take(&mut state.scaling_log_values);
     log_rs.clear();
 
-    let mut y_pref = std::mem::take(&mut state.workspace_f64_1);
+    let mut y_pref = std::mem::take(&mut state.prefix_sum);
     y_pref.resize(n + 1, 0.0);
 
-    let mut y2_pref = std::mem::take(&mut state.workspace_f64_2);
+    let mut y2_pref = std::mem::take(&mut state.prefix_sum_sq);
     y2_pref.resize(n + 1, 0.0);
 
     for i in 0..n {
@@ -443,9 +435,9 @@ fn calc_hurst(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
         }
     }
 
-    state.workspace_f64_1 = y_pref;
-    state.workspace_f64_2 = y2_pref;
-    state.approx_entropy_buffer = scales;
+    state.prefix_sum = y_pref;
+    state.prefix_sum_sq = y2_pref;
+    state.scaling_scales = scales;
 
     let res = if log_scales.len() > 1 {
         let x = &log_scales;
@@ -471,8 +463,8 @@ fn calc_hurst(values: &[f32], state: &mut crate::common::ColumnState) -> f32 {
         f32::NAN
     };
 
-    state.workspace_f64_5 = log_scales;
-    state.workspace_f64_4 = log_rs;
+    state.scaling_log_scales = log_scales;
+    state.scaling_log_values = log_rs;
 
     res
 }

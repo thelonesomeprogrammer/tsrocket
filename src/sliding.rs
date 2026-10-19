@@ -234,7 +234,7 @@ impl SlidingExtractor {
             .zip(self.histories[..n_cols].par_iter_mut())
             .zip(rows.par_iter())
             .map(
-                |((state, history), &values)| -> Result<Vec<Vec<f32>>, String> {
+                |((state, history), &values)| -> Result<(usize, Vec<f32>), String> {
                     let engine = SlidingEngine {
                         compute: self.compute,
                         features: &self.features,
@@ -249,14 +249,18 @@ impl SlidingExtractor {
                         fft_rebuild_every: self.fft_rebuild_every,
                     };
 
-                    let mut batch_res = Vec::new();
+                    // Windows completed by these values: at most one per stride.
+                    let max_windows = (history.len() + values.len()) / stride.max(1) + 1;
+                    let mut batch_res = Vec::with_capacity(max_windows * engine.features.len());
+                    let mut n_windows = 0;
 
                     for &val in values {
                         history.push(val);
 
                         if history.len() == window_size {
                             // First time window is full
-                            batch_res.push(engine.process_column(history, state, false)?);
+                            engine.process_column(history, state, false, &mut batch_res)?;
+                            n_windows += 1;
                         } else if history.len() == window_size + stride {
                             // We have reached a stride boundary
                             let old_slice = &history[..stride];
@@ -290,16 +294,21 @@ impl SlidingExtractor {
 
                             history.drain(..stride);
 
-                            batch_res.push(engine.process_column(history, state, true)?);
+                            engine.process_column(history, state, true, &mut batch_res)?;
+                            n_windows += 1;
                             state.n += stride as f32;
                         }
                     }
-                    Ok(batch_res)
+                    Ok((n_windows, batch_res))
                 },
             )
-            .collect::<Result<Vec<Vec<Vec<f32>>>, String>>()?;
+            .collect::<Result<Vec<(usize, Vec<f32>)>, String>>()?;
 
-        let n_windows = column_results[0].len();
-        Ok((n_windows, column_results.concat().concat()))
+        let n_windows = column_results[0].0;
+        let mut out = Vec::with_capacity(column_results.iter().map(|(_, r)| r.len()).sum());
+        for (_, r) in &column_results {
+            out.extend_from_slice(r);
+        }
+        Ok((n_windows, out))
     }
 }

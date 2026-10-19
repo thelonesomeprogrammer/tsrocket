@@ -192,7 +192,8 @@ pub fn eval_changes(feat: &Feature, context: &mut crate::context::FeatureContext
             let cl = *chunk_len as usize;
             let mut agg_series = std::mem::take(&mut state.agg_linear_trend_buffer);
             agg_series.clear();
-            let mut chunk_buf = Vec::new(); // only used by AggFunc::Median
+            // Only used by AggFunc::Median.
+            let mut chunk_buf = std::mem::take(&mut state.sort_buffer);
             // tsfresh aggregates numpy chunks over ceil(n / chunk_len) chunks,
             // so the last chunk may be partial and var is ddof=0.
             for chunk in values.chunks(cl) {
@@ -217,8 +218,10 @@ pub fn eval_changes(feat: &Feature, context: &mut crate::context::FeatureContext
                 };
                 agg_series.push(val);
             }
+            state.sort_buffer = chunk_buf;
             let m_n = agg_series.len() as f32;
             if m_n < 2.0 {
+                state.agg_linear_trend_buffer = agg_series;
                 f32::NAN // tsfresh: linregress on fewer than 2 chunks
             } else {
                 let m_sum_x: f32 = (0..agg_series.len()).map(|i| i as f32).sum();

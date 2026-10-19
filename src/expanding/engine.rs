@@ -254,9 +254,8 @@ impl<'a> ExpandingEngine<'a> {
             feats.push(val);
         }
 
-        if self.compute.intersects(Compute::ANY_FFT) {
-            state.spectrum_buffer = std::mem::take(&mut fft_res.spectrum);
-        }
+        fft_res.recycle(state);
+        state.last_fft_complex = std::mem::take(&mut fft_res.fft_complex);
 
         feats
     }

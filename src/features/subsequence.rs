@@ -55,7 +55,14 @@ pub fn eval_subsequence(feat: &Feature, context: &mut FeatureContext) -> Option<
                         / (profile.len() - 1).max(1) as f32;
                     Some(var)
                 }
-                AggFunc::Median => Some(super::median_in_place(&mut profile.clone())),
+                AggFunc::Median => {
+                    let mut buf = std::mem::take(&mut state.sort_buffer);
+                    buf.clear();
+                    buf.extend_from_slice(profile);
+                    let median = super::median_in_place(&mut buf);
+                    state.sort_buffer = buf;
+                    Some(median)
+                }
             }
         }
         _ => None,

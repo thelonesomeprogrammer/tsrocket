@@ -115,14 +115,21 @@ pub fn eval_transform(feat: &Feature, context: &mut crate::context::FeatureConte
                 .sum::<f64>()
                 / n_vals)
                 .sqrt();
-            let scaled: Vec<f32> = if std > 0.0 {
-                values.iter().map(|&v| (v as f64 / std) as f32).collect()
+            let mut scaled = std::mem::take(&mut state.sort_buffer);
+            scaled.clear();
+            if std > 0.0 {
+                scaled.extend(values.iter().map(|&v| (v as f64 / std) as f32));
             } else {
-                values.to_vec()
-            };
-            let psd =
-                crate::spectral::welch_psd(&scaled, scaled.len(), state.fs).unwrap_or_default();
-            psd.into_iter().fold(0.0, f32::max)
+                scaled.extend_from_slice(values);
+            }
+            let fs = state.fs;
+            let max = state
+                .welch_full
+                .get_or_insert_default()
+                .psd(&scaled, scaled.len(), fs)
+                .map_or(0.0, |psd| psd.iter().copied().fold(0.0, f32::max));
+            state.sort_buffer = scaled;
+            max
         }
         // tsfresh: NaN past the last rfft coefficient (n / 2).
         Feature::FftCoefficient(coeff, _) if *coeff as usize > context.values.len() / 2 => f32::NAN,
@@ -150,18 +157,15 @@ pub fn eval_transform(feat: &Feature, context: &mut crate::context::FeatureConte
         Feature::SpectralDistance => {
             let len = spectrum.len();
             if len > 1 {
+                let total = spectrum.iter().fold(0.0f64, |acc, &s| acc + s as f64);
                 let mut cum = 0.0f64;
-                let cums: Vec<f64> = spectrum
+                spectrum
                     .iter()
-                    .map(|&s| {
-                        cum += s as f64;
-                        cum
-                    })
-                    .collect();
-                let total = cum;
-                cums.iter()
                     .enumerate()
-                    .map(|(i, &c)| total * i as f64 / (len - 1) as f64 - c)
+                    .map(|(i, &s)| {
+                        cum += s as f64;
+                        total * i as f64 / (len - 1) as f64 - cum
+                    })
                     .sum::<f64>() as f32
             } else {
                 0.0

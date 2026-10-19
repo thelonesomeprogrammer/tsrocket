@@ -75,10 +75,11 @@ pub fn eval_autocorrelation(
                 if max_l == 0 {
                     0.0
                 } else {
-                    let mut adjusted: Vec<f32> =
-                        (1..=max_l).map(|l| adjusted_acf(fft_autocorr, l)).collect();
+                    let mut adjusted = std::mem::take(&mut state.sort_buffer);
+                    adjusted.clear();
+                    adjusted.extend((1..=max_l).map(|l| adjusted_acf(fft_autocorr, l)));
                     let slice = &adjusted[..];
-                    match func {
+                    let agg = match func {
                         crate::types::AggFunc::Mean => {
                             let sum: f32 = slice.iter().sum();
                             sum / max_l as f32
@@ -95,7 +96,9 @@ pub fn eval_autocorrelation(
                             slice.iter().copied().fold(f32::INFINITY, f32::min)
                         }
                         crate::types::AggFunc::Median => super::median_in_place(&mut adjusted),
-                    }
+                    };
+                    state.sort_buffer = adjusted;
+                    agg
                 }
             }
         }

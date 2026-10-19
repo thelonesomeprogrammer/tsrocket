@@ -46,9 +46,11 @@ pub fn eval_min_max(feat: &Feature, context: &mut crate::context::FeatureContext
         Feature::FirstLocMin => first_min_idx as f32 / n,
         Feature::LastLocMin => (last_min_idx + 1) as f32 / n,
         Feature::MeanNAbsoluteMax(n_max) => {
-            let mut abs_vals: Vec<f32> = values.iter().map(|v| v.abs()).collect();
+            let mut abs_vals = std::mem::take(&mut state.sort_buffer);
+            abs_vals.clear();
+            abs_vals.extend(values.iter().map(|v| v.abs()));
             let count = (*n_max as usize).min(abs_vals.len());
-            if count > 0 {
+            let res = if count > 0 {
                 if count < abs_vals.len() {
                     abs_vals.select_nth_unstable_by(count, |a, b| {
                         b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal)
@@ -57,7 +59,9 @@ pub fn eval_min_max(feat: &Feature, context: &mut crate::context::FeatureContext
                 abs_vals.iter().take(count).sum::<f32>() / count as f32
             } else {
                 f32::NAN
-            }
+            };
+            state.sort_buffer = abs_vals;
+            res
         }
         Feature::HasDuplicateMax => {
             let mut count = 0;
